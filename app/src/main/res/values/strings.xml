@@ -1,0 +1,560 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Polaris</string>
+    <string name="secure_prefs_degraded_warning">⚠ 安全存储异常：部分数据仅存于内存，重启后将丢失。请尝试清除应用数据后重新登录。</string>
+
+    <!-- Login -->
+    <string name="login_welcome">欢迎登录</string>
+    <string name="login_account_hint">输入邮箱</string>
+    <string name="login_password_hint">请输入密码</string>
+    <string name="login_toggle_password">显示/隐藏密码</string>
+    <string name="login_button">登录</string>
+    <string name="login_remember_me">记住密码</string>
+    <string name="login_forgot_password">忘记密码？</string>
+    <string name="login_url_hint">面板地址</string>
+    <string name="login_url_required">请输入面板地址</string>
+    <string name="login_url_invalid">面板地址无效，示例：https://panel.example.com</string>
+    <string name="login_backend_probe_failed">无法识别面板后端类型，请检查面板地址后重试</string>
+    <string name="panel_url_confirm_title">确认面板地址</string>
+    <string name="panel_url_confirm_private_title">安全风险：内部地址</string>
+    <string name="panel_url_confirm_message">即将连接到以下面板地址，您的登录凭据将发送至此服务器：</string>
+    <string name="panel_url_confirm_private_warning">该地址指向内部/本地网络，可能存在安全风险，请确认您信任此地址。</string>
+    <string name="panel_url_confirm_connect">连接</string>
+    <string name="panel_url_confirm_cancel">取消</string>
+
+    <!-- Register -->
+    <string name="register_title">创建账号</string>
+    <string name="register_send_code">发送</string>
+    <string name="register_invite_hint">邀请码（必填）</string>
+    <string name="register_invite_optional">邀请码（选填）</string>
+    <string name="register_button">注册</string>
+    <string name="register_back_to_login">返回登录</string>
+    <!-- 面板下发了邮箱后缀白名单时，注册页只让用户填 @ 前面的部分，后缀从下拉里选 -->
+    <string name="register_email_suffix_label">选择邮箱后缀</string>
+
+    <!-- Forgot Password -->
+    <string name="forgot_title">重置密码</string>
+    <string name="forgot_reset_button">重置密码</string>
+
+    <!-- Error messages (client-side mapped, see ErrorMessages.kt) -->
+    <string name="error_login_invalid">邮箱或密码错误</string>
+    <string name="error_login_not_found">该邮箱未注册</string>
+    <string name="error_login_failed">登录失败</string>
+    <string name="error_register_failed">注册失败重试</string>
+    <string name="error_forgot_failed">重置失败重试</string>
+    <string name="error_network">请求失败</string>
+    <string name="error_email_send_failed">验证码发送失败</string>
+    <string name="error_email_required">请输入邮箱</string>
+    <string name="error_email_suffix_not_allowed">邮箱后缀不在允许的列表中</string>
+    <string name="error_code_required">请输入验证码</string>
+    <string name="error_password_required">请输入密码</string>
+    <string name="error_new_password_required">请输入新密码</string>
+    <string name="error_invite_required">邀请码为必填项</string>
+
+    <!-- Top bar actions -->
+    <string name="topbar_dark_mode">深色模式</string>
+    <string name="topbar_light_mode">浅色模式</string>
+    <string name="topbar_auto_mode">跟随系统</string>
+    <string name="topbar_notice">公告</string>
+
+    <!-- Plan card -->
+    <string name="plan_status_expired">已过期</string>
+    <plurals name="plan_expire_days_label">
+        <item quantity="other">%d天后到期</item>
+    </plurals>
+    <plurals name="plan_expire_days_short">
+        <item quantity="other">剩 %d 天</item>
+    </plurals>
+    <string name="plan_expire_date_label">%1$s 到期</string>
+    <string name="plan_expired_today">今天到期</string>
+    <string name="plan_no_expiry">不限时</string>
+    <string name="plan_percent">%d%%</string>
+    <string name="plan_separator">·</string>
+    <string name="plan_empty">暂无套餐</string>
+    <string name="plan_used_prefix">已用</string>
+    <string name="plan_total_prefix">总额</string>
+    <string name="plan_renew_button">续费</string>
+    <string name="plan_buy_button">购买</string>
+
+    <!-- Quick actions -->
+    <string name="action_server">服务器</string>
+    <string name="action_proxy_mode">代理模式</string>
+
+    <!-- Status -->
+    <string name="status_disconnected">未连接</string>
+    <string name="status_connected">已连接</string>
+    <string name="status_connecting">连接中…</string>
+
+    <!-- Common -->
+    <string name="back">返回</string>
+    <string name="loading">加载中…</string>
+    <string name="switch_state_on">开启</string>
+    <string name="switch_state_off">关闭</string>
+
+    <!-- Dashboard -->
+    <string name="dashboard_usage_title">流量用量</string>
+    <string name="dashboard_usage_valid">有效</string>
+    <plurals name="dashboard_days">
+        <item quantity="other">%d 天</item>
+    </plurals>
+    <string name="dashboard_proxy_rule">规则</string>
+    <string name="dashboard_proxy_direct">直连</string>
+    <string name="dashboard_proxy_script">脚本</string>
+    <string name="dashboard_proxy_global">全局</string>
+    <string name="proxy_rule_desc">根据规则路由所有流量</string>
+    <string name="proxy_global_desc">所有流量都走到代理服务器</string>
+    <string name="proxy_direct_desc">所有流量不经过代理直接连接</string>
+    <string name="dashboard_network_speed">网络速度</string>
+    <string name="dashboard_traffic_stats">流量统计</string>
+    <string name="dashboard_traffic_total">合计</string>
+    <string name="dashboard_lan_ip">内网IP</string>
+    <string name="dashboard_memory">内存信息</string>
+    <string name="dashboard_power_switch">启动开关</string>
+    <string name="service_ready">服务已就绪</string>
+    <string name="dashboard_current_ip">当前IP</string>
+    <string name="dashboard_ip_copied">已复制 IP</string>
+    <string name="dashboard_update_subscription">更新订阅</string>
+    <string name="dashboard_no_plan_badge">无套餐</string>
+    <string name="dashboard_no_plan_tip">请先购买套餐</string>
+    <string name="dashboard_refresh_done">订阅已更新</string>
+    <string name="notification_permission_denied">未开启通知权限，连接状态提醒可能收不到</string>
+    <string name="battery_opt_title">允许后台运行</string>
+    <string name="battery_opt_message">系统可能会在后台自动停止 Polaris，导致代理中断。请在电池优化中将 Polaris 设为"不优化"，以保持后台稳定运行。</string>
+    <string name="battery_opt_go_settings">去设置</string>
+    <string name="battery_opt_later">下次再说</string>
+
+    <!-- Server -->
+    <string name="server_title">节点</string>
+    <string name="server_speed_test">测速</string>
+    <string name="server_speed_test_done">测速完成</string>
+    <string name="server_speed_test_failed">测速失败，请检查网络后重试</string>
+    <string name="server_timeout">超时</string>
+    <string name="server_untested">未测</string>
+
+    <!-- Invite -->
+    <string name="invite_title">邀请返利</string>
+    <string name="currency_symbol">¥</string>
+    <string name="invite_stat_registered">注册人数</string>
+    <string name="invite_stat_commission_rate">佣金比例</string>
+    <string name="invite_stat_total">累计佣金</string>
+    <string name="invite_stat_pending">待确认中</string>
+    <string name="invite_stat_available">可提现佣金</string>
+    <string name="invite_code_title">邀请码</string>
+    <string name="invite_code_generate">生成邀请码</string>
+    <string name="invite_code_copy">复制</string>
+    <string name="invite_code_copied">已复制到剪贴板</string>
+    <string name="invite_code_empty">暂无邀请码</string>
+    <string name="invite_transfer">佣金划转</string>
+    <string name="invite_withdraw">申请提现</string>
+    <string name="invite_transfer_title">佣金划转</string>
+    <string name="invite_transfer_amount_hint">请输入需要划转到余额的金额</string>
+    <string name="invite_transfer_confirm">确认划转</string>
+    <string name="invite_transfer_available">当前推广佣金余额</string>
+    <string name="invite_transfer_subtitle">划转后的余额仅用于 %1$s 消费使用</string>
+    <string name="invite_withdraw_method_hint">请选择提现方式</string>
+    <string name="invite_withdraw_account_label">提现账号</string>
+    <string name="invite_withdraw_methods_loading">加载中…</string>
+    <string name="invite_withdraw_methods_failed">提现方式加载失败，点击重试</string>
+    <string name="invite_withdraw_title">申请提现</string>
+    <string name="invite_withdraw_subtitle">请确认提现账号无误，佣金将在 72 小时内到账</string>
+    <string name="invite_withdraw_method">提现方式</string>
+    <string name="invite_withdraw_account_hint">请输入提现账号</string>
+    <string name="invite_withdraw_confirm">确认提现</string>
+    <string name="invite_withdraw_methods_empty">暂无可用提现方式</string>
+    <string name="invite_records_title">佣金发放记录</string>
+    <string name="invite_records_empty">暂无佣金记录</string>
+    <string name="invite_record_amount">+¥%s</string>
+    <string name="invite_record_amount_label">订单金额 ¥%s</string>
+    <string name="invite_record_order">订单 %s</string>
+    <string name="invite_code_pv">PV %d</string>
+    <plurals name="invite_users">
+        <item quantity="other">%d 人</item>
+    </plurals>
+    <string name="invite_rate">%d%%</string>
+    <string name="invite_success_transfer">转账成功</string>
+    <string name="invite_success_withdraw">提现申请已提交</string>
+    <string name="invite_success_generate">邀请码已生成</string>
+    <string name="invite_error_generate">生成失败</string>
+    <string name="invite_error_generate_limit">已达邀请码创建上限</string>
+    <string name="invite_error_transfer">转账失败</string>
+    <string name="invite_error_withdraw">提现失败</string>
+    <!-- Notice -->
+    <string name="notice_title">公告通知</string>
+    <string name="notice_empty">暂无公告</string>
+    <string name="notice_error">加载失败</string>
+    <string name="notice_retry">重试</string>
+    <string name="notice_refresh_failed">刷新失败，请稍后重试</string>
+
+    <!-- Traffic -->
+    <string name="traffic_title">流量明细</string>
+    <string name="traffic_records_title">流量明细</string>
+    <string name="traffic_records_empty">暂无流量记录</string>
+    <string name="traffic_upload">上行</string>
+    <string name="traffic_download">下行</string>
+    <string name="traffic_total">合计 %1$s</string>
+    <string name="traffic_load_failed">获取流量明细失败</string>
+    <string name="traffic_load_failed_detail">错误详情：%1$s</string>
+
+    <!-- Ticket -->
+    <string name="ticket_title">我的工单</string>
+    <string name="ticket_empty">暂无工单</string>
+    <string name="ticket_error">加载失败</string>
+    <string name="ticket_refresh_failed">刷新失败，请稍后重试</string>
+    <string name="ticket_new">新建工单</string>
+    <string name="ticket_subject">工单主题</string>
+    <string name="ticket_message">请描述你遇到的问题</string>
+    <string name="ticket_level">优先级</string>
+    <string name="ticket_level_low">低</string>
+    <string name="ticket_level_medium">中</string>
+    <string name="ticket_level_high">高</string>
+    <string name="ticket_submit">提交</string>
+    <string name="ticket_submit_success">工单已提交</string>
+    <string name="ticket_submit_failed">提交失败</string>
+    <string name="ticket_detail">工单详情</string>
+    <string name="ticket_detail_failed">详情加载失败</string>
+    <string name="ticket_reply">发送</string>
+    <string name="ticket_reply_hint">请输入回复内容</string>
+    <string name="ticket_reply_success">回复已发送</string>
+    <string name="ticket_reply_failed">回复失败</string>
+    <string name="ticket_close">关闭工单</string>
+    <string name="ticket_close_confirm">确定要关闭该工单吗？</string>
+    <string name="ticket_close_success">工单已关闭</string>
+    <string name="ticket_close_failed">关闭失败</string>
+    <string name="ticket_confirm">确定</string>
+    <string name="ticket_cancel">取消</string>
+    <string name="ticket_sender_me">我</string>
+    <string name="ticket_sender_support">客服</string>
+    <string name="ticket_status_open">待处理</string>
+    <string name="ticket_status_closed">已关闭</string>
+    <string name="ticket_created_at">创建于</string>
+
+    <!-- Profile -->
+    <string name="profile_title">个人中心</string>
+    <string name="profile_not_logged_in">未登录</string>
+    <string name="profile_orders">我的订单</string>
+    <string name="profile_tickets">我的工单</string>
+    <string name="profile_telegram">Telegram</string>
+    <string name="profile_about">关于软件</string>
+
+    <!-- About (关于软件) -->
+    <string name="about_title">关于软件</string>
+    <string name="about_app_desc">Polaris — a lightweight mihomo (Clash) based proxy client.</string>
+    <string name="about_app_version">应用版本</string>
+    <string name="about_kernel_version">内核版本</string>
+    <string name="about_log_export">日志导出</string>
+    <string name="about_log_exported">日志已导出</string>
+    <string name="about_log_export_failed">日志导出失败</string>
+    <string name="about_log_export_share">分享日志</string>
+    <string name="about_check_update">检查更新</string>
+    <string name="update_checking">检查中…</string>
+    <string name="update_title">发现新版本</string>
+    <string name="update_version_line">新版本 %1$s，当前 %2$s</string>
+    <string name="update_now">立即更新</string>
+    <string name="update_up_to_date">已是最新版本</string>
+    <string name="update_check_failed">检查失败，请稍后重试</string>
+    <string name="update_downloading">正在下载更新…</string>
+    <string name="update_download_in_progress">更新包正在下载中，请稍候</string>
+    <string name="update_download_progress">%1$s / %2$s</string>
+    <string name="update_download_progress_unknown">已下载 %1$s</string>
+    <string name="update_download_cancel">取消</string>
+    <string name="update_dot_desc">有新版本</string>
+    <string name="update_download_failed">更新失败：%1$s</string>
+    <string name="update_install_permission_needed">请在系统设置中允许「安装未知应用」，返回后继续安装</string>
+    <string name="update_download_dir_unavailable">无法访问外部下载目录</string>
+    <string name="update_download_incomplete">下载未成功，请重试</string>
+    <string name="update_download_network_error">网络连接失败</string>
+    <string name="update_download_checksum_failed">安装包校验失败，已删除</string>
+    <string name="update_download_install_failed">无法打开系统安装界面，安装包已删除</string>
+    <string name="about_log_share_failed">无法分享日志</string>
+
+    <!-- Update (检查更新) -->
+
+    <string name="profile_logout">退出登录</string>
+    <string name="logout_confirm_message">确定要退出当前账号吗？</string>
+    <string name="session_expired_relogin">登录已过期，请重新登录</string>
+
+    <!-- Settings (其他设置) -->
+    <string name="settings_title">其他设置</string>
+    <string name="settings_tun_stack">TUN 堆栈模式</string>
+    <string name="settings_tun_stack_system">System</string>
+    <string name="settings_tun_stack_system_desc">系统级网络栈，性能最佳</string>
+    <string name="settings_tun_stack_gvisor">Gvisor</string>
+    <string name="settings_tun_stack_gvisor_desc">用户态网络栈，兼容性较好</string>
+    <string name="settings_tun_stack_mixed">Mixed</string>
+    <string name="settings_tun_stack_mixed_desc">混合模式，性能与兼容性平衡</string>
+    <string name="settings_tun_stack_switched">TUN 堆栈模式已切换</string>
+    <string name="settings_change_password">修改密码</string>
+    <string name="settings_dark_mode">深色模式</string>
+    <string name="settings_change_pwd_old_hint">当前密码</string>
+    <string name="settings_change_pwd_new_hint">新密码（至少 8 位）</string>
+    <string name="settings_change_pwd_confirm_hint">确认新密码</string>
+    <string name="settings_change_pwd_submit">确认修改</string>
+    <string name="settings_change_pwd_old_required">请输入当前密码</string>
+    <string name="settings_change_pwd_too_short">新密码至少 8 位</string>
+    <string name="settings_change_pwd_mismatch">两次输入的新密码不一致</string>
+    <string name="settings_change_pwd_failed">修改失败</string>
+    <string name="settings_change_pwd_success">密码修改成功</string>
+    <string name="settings_expire_remind">到期邮件提醒</string>
+    <string name="settings_traffic_remind">流量邮件提醒</string>
+    <string name="settings_remind_save_failed">提醒设置保存失败</string>
+    <string name="settings_local_routing">本地分流方案</string>
+    <string name="settings_local_routing_desc">启用 App 内置分流规则并忽略面板下发配置</string>
+    <string name="settings_local_routing_failed">分流设置保存失败</string>
+    <string name="settings_routing_rules">分流规则管理</string>
+    <string name="routing_rules_desc">内置分流规则组。拖动右侧手柄可调整顺序，顺序决定规则匹配的优先级；关闭的组不再生成对应分流规则；改动即时生效。</string>
+    <string name="routing_rules_drag_handle">拖动排序</string>
+    <string name="routing_outbound_proxy">默认走代理</string>
+    <string name="routing_outbound_direct">默认直连</string>
+    <string name="routing_outbound_block">默认拦截</string>
+    <string name="routing_rules_reset">恢复默认</string>
+    <string name="routing_rules_reset_desc">清除所有组的自定义开关与拖动顺序，回到内置默认值</string>
+    <string name="routing_custom_add">添加自定义规则组</string>
+    <string name="routing_custom_add_desc">点击删除已添加的自定义组；规则集由内核定期抓取更新</string>
+    <string name="routing_custom_name_hint">组名（1–32 字符，不可与内置组重名）</string>
+    <string name="routing_custom_url_hint">规则集地址（https，YAML payload）</string>
+    <string name="routing_custom_behavior_classical">全类型（classical）</string>
+    <string name="routing_custom_behavior_domain">域名（domain）</string>
+    <string name="routing_custom_behavior_ipcidr">IP 段（ipcidr）</string>
+    <string name="routing_custom_submit">添加</string>
+    <string name="routing_custom_invalid_name">组名为空、超长或与内置组冲突</string>
+    <string name="routing_custom_duplicate_name">同名规则组已存在</string>
+    <string name="routing_custom_invalid_url">仅支持 https 地址，且不得指向本地/内网</string>
+    <string name="routing_custom_cleaned_invalid">部分自定义规则组名称或直连域名不合法（如与内置组重名、含非法字符），已在 App 列表中暂时隐藏（配置仍保留在本地）</string>
+    <string name="routing_hidden_title">暂时隐藏的条目</string>
+    <string name="routing_hidden_desc">下面这些条目不在 App 列表里生效，但仍原样保留在本地配置文件里，不会被删除</string>
+    <string name="routing_hidden_custom_tag">自定义规则组（暂时隐藏）</string>
+    <string name="routing_hidden_domain_tag">直连域名（暂时隐藏）</string>
+    <string name="routing_export_backup">导出本地分流配置</string>
+    <string name="routing_export_backup_desc">把 routing.json 存到下载目录并分享（含被隐藏条目）</string>
+    <string name="routing_export_backup_share">导出本地分流配置</string>
+    <string name="routing_export_backup_failed">导出失败，请重试</string>
+    <string name="routing_degraded_notice">本地分流未生效：订阅节点名与内置分流组名冲突，已临时回退面板分流</string>
+
+    <!-- V5 UI（v5 重设计新增） -->
+    <string name="page_nodes">节点</string>
+    <string name="page_traffic">流量</string>
+    <string name="page_me">我的</string>
+    <string name="v5_connected_rule">已连接 · 规则</string>
+    <string name="v5_connected_title">已连接</string>
+    <string name="v5_not_connected">未连接</string>
+    <string name="v5_protected">已保护</string>
+    <string name="v5_unprotected">未受保护</string>
+    <string name="v5_connected_wait">已连接</string>
+    <string name="v5_waiting">等待连接</string>
+    <string name="v5_connecting">连接中</string>
+    <string name="v5_connecting_wait">正在建立连接</string>
+    <string name="v5_connect">连接</string>
+    <string name="v5_disconnect">断开</string>
+    <string name="v5_cancel">取消</string>
+    <string name="v5_connected_node">已连接 · %1$s</string>
+    <string name="v5_ready_no_node">就绪 · 尚未选择节点</string>
+    <string name="v5_down_speed">下行速率</string>
+    <string name="v5_up_speed">上行速率</string>
+    <string name="v5_nodes_summary">%1$d 个节点 · %2$d 个分组</string>
+    <string name="v5_speed_testing">测速中</string>
+    <string name="v5_quick_pick">快捷选择</string>
+    <string name="v5_quick_pick_desc">自动选择最快节点或故障转移</string>
+    <string name="v5_auto_pick">自动选择</string>
+    <string name="v5_fallback_pick">故障转移</string>
+    <string name="v5_group_now">当前 %1$s</string>
+    <string name="v5_groups_loading">正在加载策略组…</string>
+    <string name="v5_traffic_total">合计流量</string>
+    <string name="v5_traffic_down">下行</string>
+    <string name="v5_traffic_up">上行</string>
+    <string name="v5_traffic_loading">加载中…</string>
+    <string name="v5_traffic_empty">暂无流量记录</string>
+    <string name="v5_traffic_unsupported_title">面板不支持流量明细</string>
+    <string name="v5_traffic_unsupported">当前面板未提供每日流量接口，仅能统计整包用量</string>
+    <string name="diag_export">导出诊断</string>
+    <string name="v5_traffic_hint">按日汇总，来自面板流量日志</string>
+    <!-- 结构项没有"延迟"这个概念，显示"未测"属于语义错误：直连/拦截没有远端可探（给不了 RTT），
+         组出口的延迟由内核按 interval=300 自行拨测产出，不由 App 测速决定。 -->
+    <string name="v5_delay_not_needed">无需测速</string>
+    <string name="v5_delay_auto">自动拨测</string>
+    <string name="v5_days_left">剩 %1$d 天</string>
+    <string name="v5_balance">余额</string>
+    <string name="v5_all_nodes">全部节点</string>
+    <string name="v5_no_nodes">暂无节点，请先更新订阅</string>
+    <string name="v5_nodes_offline_hint">尚未连接：以下是订阅里的节点，连接后即可切换</string>
+    <string name="v5_nodes_summary_offline">%1$d 个节点 · 未连接</string>
+    <!-- 探测确认不可达（域名不存在/连接被拒/无路由），与灰色的「超时」区分：超时可能只是抖动 -->
+    <string name="v5_node_offline">离线</string>
+    <string name="v5_state_loading">正在加载…</string>
+    <string name="v5_state_retry">重试</string>
+    <string name="v5_routing_groups">分流规则组</string>
+    <string name="v5_group_exit">当前出口</string>
+    <string name="v5_group_exit_hint">选择该分类使用的出口（可指定具体节点）</string>
+    <string name="v5_group_current">当前：%1$s</string>
+    <string name="v5_group_follow_primary">跟随「节点选择」</string>
+    <string name="v5_group_unset">未选择</string>
+    <string name="v5_group_item">策略组</string>
+    <string name="me_plans">订阅套餐</string>
+    <string name="me_orders">我的订单</string>
+    <string name="me_invite">邀请返利</string>
+    <string name="me_tickets">我的工单</string>
+    <string name="me_notices">公告通知</string>
+    <string name="me_services">我的服务</string>
+    <string name="me_about">关于软件</string>
+    <string name="usage_no_plan">暂无套餐</string>
+    <string name="usage_valid">有效</string>
+    <string name="usage_expired">已过期</string>
+    <string name="usage_used">已用</string>
+    <string name="usage_total">/ %1$s</string>
+    <string name="usage_expired_on">已于 %1$s 到期</string>
+    <string name="usage_title">套餐用量</string>
+    <string name="session_title">会话信息</string>
+    <string name="session_running">运行中</string>
+    <string name="session_not_running">未运行</string>
+    <string name="session_current_ip">当前 IP</string>
+    <string name="session_used">本次用量</string>
+    <string name="session_lan_ip">内网 IP</string>
+    <string name="session_memory">内存占用</string>
+    <string name="session_memory_mb">%1$d MB</string>
+
+    <!-- Orders -->
+    <string name="order_empty">暂无订单</string>
+    <string name="order_unknown_plan">未知套餐</string>
+    <string name="order_price">价格</string>
+    <string name="order_created">创建于</string>
+    <string name="order_id">订单号</string>
+    <string name="order_cancel">取消</string>
+    <string name="order_pay">支付</string>
+    <string name="order_status_pending">待支付</string>
+    <string name="order_status_completed">已完成</string>
+    <string name="order_status_cancelled">已取消</string>
+    <string name="order_status_abnormal">异常</string>
+    <string name="order_cancel_success">订单已取消</string>
+    <string name="order_cancel_failed">取消失败</string>
+
+    <!-- Plans -->
+    <string name="plans_title">订阅</string>
+    <string name="plans_traffic_unit">GB</string>
+    <string name="plans_traffic_label">流量</string>
+    <string name="plans_current_title">当前套餐</string>
+    <string name="plans_in_use">使用中</string>
+    <string name="plans_remaining">剩余流量</string>
+    <string name="plans_total">总流量</string>
+    <string name="plans_subscribe">订阅</string>
+    <string name="plans_recommended">推荐</string>
+
+    <!-- Purchase Flow -->
+    <string name="purchase_coupon_hint">有优惠券？</string>
+    <string name="purchase_verify">验证</string>
+    <string name="purchase_coupon_applied">优惠券已生效</string>
+    <string name="purchase_coupon_discount">优惠券抵扣</string>
+    <string name="purchase_coupon_verify_first">请先验证优惠券</string>
+    <string name="error_coupon_invalid">优惠券无效或已过期</string>
+    <string name="gift_card_title">礼品卡兑换</string>
+    <string name="gift_card_subtitle">输入礼品卡兑换码，兑换成功后余额或套餐立即到账</string>
+    <string name="gift_card_redeem">立即兑换</string>
+    <string name="gift_card_code_hint">请输入兑换码</string>
+    <string name="gift_card_success_toast">兑换成功</string>
+    <string name="error_gift_card_used">该兑换码已被使用</string>
+    <string name="error_gift_card_unavailable">当前账号不满足该兑换码的使用条件</string>
+    <string name="error_gift_card_invalid">兑换码无效或已过期</string>
+    <string name="error_gift_card_generic">兑换失败，请稍后重试</string>
+    <string name="purchase_confirm_order">确认订单</string>
+    <string name="purchase_warning_title">警告</string>
+    <string name="purchase_warning_message">请注意，更新订阅类型将导致旧订阅被新订阅覆盖。</string>
+    <string name="purchase_cancel">取消</string>
+    <string name="purchase_confirm">确认</string>
+    <string name="purchase_order_info">订单信息</string>
+    <string name="purchase_product">套餐</string>
+    <string name="purchase_product_price">套餐价格</string>
+    <string name="purchase_balance">余额</string>
+    <string name="purchase_surplus">旧套餐折抵</string>
+    <string name="purchase_refund">返还余额</string>
+    <string name="purchase_handling">手续费</string>
+    <string name="purchase_payable">应付金额</string>
+    <string name="purchase_payment_method">选择支付方式</string>
+    <string name="purchase_payment_method_empty">暂无可用支付方式</string>
+    <string name="purchase_pay_amount">支付 ¥%s</string>
+    <string name="purchase_existing_order_title">存在未支付订单</string>
+    <string name="purchase_existing_order_message">您有一个未完成的订单</string>
+    <string name="purchase_error_title">创建失败</string>
+    <string name="order_pay_failed">支付失败</string>
+    <string name="order_pay_success">支付成功</string>
+    <string name="order_activate_now">立即开通</string>
+    <string name="order_already_paid">订单已支付</string>
+    <string name="purchase_activation_timeout">订单已支付，套餐开通确认超时，请稍后刷新查看</string>
+    <string name="profile_email_label">邮箱</string>
+
+    <!-- Unit formats -->
+    <string name="format_delay_ms">%dms</string>
+    <string name="format_countdown_s">%ds</string>
+
+    <!-- Period labels -->
+    <string name="period_month">月付</string>
+    <string name="period_quarter">季付</string>
+    <string name="period_half_year">半年</string>
+    <string name="period_year">年付</string>
+    <string name="period_two_year">两年</string>
+    <string name="period_three_year">三年</string>
+    <string name="period_onetime">一次性</string>
+    <string name="period_reset">流量重置</string>
+
+    <!-- API error messages -->
+    <string name="api_error_bad_response">服务器响应格式异常</string>
+    <string name="api_error_edge_blocked">请求被面板的安全策略拦截（HTTP 403），可更换网络后重试</string>
+    <string name="api_error_rate_limited">请求过于频繁，请稍后重试</string>
+    <string name="api_error_server_unavailable">服务器暂时不可用，请稍后重试</string>
+    <string name="api_error_empty_data">服务器返回数据为空</string>
+    <string name="api_error_register_config">获取注册配置失败</string>
+    <string name="api_error_user_info">获取用户信息失败</string>
+    <string name="api_error_subscribe_info">获取订阅信息失败</string>
+    <string name="api_error_invite_info">获取邀请信息失败</string>
+    <string name="api_error_create_order">创建订单失败</string>
+    <string name="api_error_order_detail">获取订单详情失败</string>
+    <string name="api_error_checkout">结算失败</string>
+    <string name="error_vpn_kernel_unavailable">连接失败，请稍后重试</string>
+    <string name="error_vpn_permission_denied">需要系统 VPN 授权才能连接，请在系统弹窗中允许</string>
+    <string name="api_error_unsupported_backend">不支持的后端类型: %s</string>
+    <!-- Additional error messages -->
+    <string name="error_order_failed">订单操作失败</string>
+    <string name="error_plans_failed">套餐加载失败</string>
+    <string name="error_server_load">加载节点失败</string>
+
+    <!-- Language（语言选项标签使用各语言自身名称，不翻译，便于后续新增语言） -->
+    <string name="settings_language">语言</string>
+    <string name="language_follow_system">跟随系统</string>
+    <string name="language_simplified">简体中文</string>
+    <string name="language_traditional">繁體中文</string>
+    <string name="language_english">English</string>
+
+    <string name="proxy_groups_title">分组</string>
+    <string name="proxy_groups_empty">暂无分组</string>
+    <string name="proxy_groups_loading">正在读取分组</string>
+    <string name="proxy_group_test">测速</string>
+    <string name="proxy_group_select_failed">切换失败</string>
+    <string name="proxy_group_type_select">手动选择</string>
+    <string name="proxy_group_type_auto">自动测速</string>
+    <string name="proxy_group_type_fallback">故障转移</string>
+    <string name="proxy_group_type_balance">负载均衡</string>
+    <string name="proxy_group_type_relay">链式代理</string>
+    <string name="proxy_group_type_unknown">其他</string>
+    <string name="proxy_group_badge">分组</string>
+
+    <!-- Bottom navigation tabs -->
+    <string name="tab_home">首页</string>
+    <string name="tab_server">节点</string>
+    <string name="tab_traffic">流量</string>
+    <string name="tab_profile">我的</string>
+
+    <string name="dashboard_session_info">会话信息</string>
+    <string name="dashboard_session_usage">本次用量</string>
+    <string name="dashboard_current_node">当前节点</string>
+    <string name="dashboard_select_node_hint">选择节点后即可开始加速</string>
+    <string name="dashboard_wait_connect">等待连接</string>
+    <string name="dashboard_duration">时长</string>
+
+    <string name="traffic_month_used">本月已用</string>
+    <string name="traffic_daily_avg">日均</string>
+    <string name="traffic_daily_peak">单日峰值</string>
+    <string name="traffic_range">统计区间</string>
+    <string name="traffic_chart_title">近 30 天趋势</string>
+    <string name="traffic_detail_section">每日明细</string>
+
+    <string name="settings_appearance">外观</string>
+    <string name="settings_group_general">通用</string>
+    <string name="settings_group_remind">提醒</string>
+</resources>

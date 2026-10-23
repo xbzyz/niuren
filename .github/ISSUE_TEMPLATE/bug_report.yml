@@ -1,0 +1,85 @@
+name: Bug report / 缺陷报告
+description: 提交 Bug 报告以帮助我们改进 / Create a report to help us improve
+title: "[Bug] <android|win|repo|rules> "
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        标题格式 / Title format：[Bug] &lt;android|win|repo|rules&gt; 一句话
+        Issue 只做登记与追踪；修复走 PR（PR body 首行写 Closes #N 或 Refs #N）。
+
+  - type: checkboxes
+    id: ensure
+    attributes:
+      label: 提交前确认 / Verify steps
+      options:
+        - label: |
+            我使用的是**本仓库**最新发布的 Polaris 版本
+            I am using the latest Polaris release from **this repository**.
+          required: true
+        - label: |
+            我已经在 Issue Tracker 中搜索过，没有找到相同或类似的问题
+            I have searched the issue tracker for a related issue.
+          required: true
+        - label: |
+            这是 Polaris 应用本身的问题，而非我所使用的面板服务或节点的问题
+            This is an issue with the Polaris app itself, not with my panel service or proxy nodes.
+          required: true
+
+  - type: textarea
+    id: symptom
+    attributes:
+      label: 现象与期望 / Symptom and expectation
+      description: 现在是什么样、你期望是什么样 / What happens now, and what you expected
+    validations:
+      required: true
+
+  - type: dropdown
+    id: platform
+    attributes:
+      label: 影响面：平台 / Impact - platform
+      options:
+        - android
+        - win
+        - repo
+        - rules
+        - 多个 / Multiple
+    validations:
+      required: true
+
+  - type: input
+    id: path
+    attributes:
+      label: 影响面：路径或页面 / Impact - path or screen
+      description: 例如 app/src/main/java/...、design/windows/app/...、设置 → 分流规则、节点页
+    validations:
+      required: true
+
+  - type: textarea
+    id: evidence
+    attributes:
+      label: 复现或证据 / Repro or evidence
+      description: 复现步骤、日志、截图、版本号（设置 → 关于）
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: 验收标准 / Acceptance criteria
+      description: 修好之后怎样算通过 / How we will know it is fixed
+    validations:
+      required: true
+
+  - type: dropdown
+    id: source
+    attributes:
+      label: 来源 / Source
+      options:
+        - 用户反馈 / User report
+        - 内部发现 / Internal
+        - 上游或第三方 / Upstream or third party
+        - 其他 / Other
+    validations:
+      required: true

@@ -1,0 +1,274 @@
+// SPDX-FileCopyrightText: 2026 Polaris Contributors
+// SPDX-License-Identifier: GPL-3.0-only
+
+package com.slte.app.kernel
+
+import com.slte.app.utils.AppLog
+import com.slte.app.utils.sanitizeLog
+
+/**
+ * 订阅重名节点的自愈改写。
+ *
+ * 内核解析 `proxies:` 时对重名直接报 `proxy X is the duplicate name`，整份配置加载失败
+ * （代理与策略组同名同样报错），而重名来自面板的命名模板，用户无从自救。
+ * 这里在清洗阶段把重名改成唯一名：首个保留原名，后续按出现顺序追加 ` (2)`、` (3)`…；
+ * 策略组与规则里的引用不动 —— 它们本来就只能绑定首个同名节点，改名后语义不变。
+ *
+ * 覆盖范围：顶层 `proxies:` 的两种书写形式 —— 块状（`- name: x`）与 flow 映射
+ * （`- {name: x, …}`）。flow 形式是面板下发订阅的默认写法，早先只认块状会让整段被当成
+ * "没有节点"，写盘前的闸门因此永远判不通过，日志里表现为「订阅存在重名等致命问题，
+ * 拒绝写入」反复出现、节点与流量永远不刷新。
+ *
+ * `proxy-providers` 内联 payload 不在范围内（内核按切片保存、不校验重名）。
+ */
+internal object SanitizerNameDeduper {
+
+    private const val PROXIES_KEY = "proxies"
+
+    private const val GROUPS_KEY = "proxy-groups"
+
+    private const val PROVIDERS_KEY = "proxy-providers"
+
+    /** `- name:` 形式的条目起始（值可能是引号包起来的，这里只看键） */
+    private val ITEM_NAME_KEY = Regex("^-\\s*name\\s*:")
+
+    /**
+     * flow 映射里的 `name` 键（`{ name: …` 或 `, name: …`）。
+     *
+     * 只认紧跟 `{` 或 `,` 的 `name:`，避免把值里出现的 "name:" 当成键。
+     */
+    private val FLOW_NAME_KEY = Regex("[{,]\\s*name\\s*:\\s*")
+
+    /** 未加引号的值以「空白 + #」结束，之后是注释 */
+    private val COMMENT_START = Regex("\\s#")
+
+    /**
+     * 内核在解析订阅代理前已占用的名字：
+     * - `PARSE_PROXIES` 预注册的 6 个内置代理，订阅再出现同名会直接报错；
+     * - `GLOBAL` 虽不报错，但会被内核随后创建的 GLOBAL 伪策略组静默覆盖掉。
+     */
+    private val RESERVED_NAMES =
+        setOf("DIRECT", "REJECT", "REJECT-DROP", "COMPATIBLE", "PASS", "PASS-RULE", "GLOBAL")
+
+    /**
+     * 只读检视：顶层 `proxies:` 里的节点名，按出现顺序（含重名）。
+     *
+     * 与 [dedupeProxyNames] 共用同一套解析，供写盘前的"内核能否加载"闸门使用。
+     */
+    fun proxyNames(text: String): List<String> {
+        val lines = SanitizerYamlLines.stripBom(text).lines()
+        return nameSpans(lines, blockRange(lines, PROXIES_KEY)).map { it.value }
+    }
+
+    /** 出现不止一次的名字。内核遇到重名代理会拒绝加载整份配置。 */
+    fun duplicateProxyNames(text: String): List<String> = proxyNames(text)
+        .groupingBy { it }
+        .eachCount()
+        .filterValues { it > 1 }
+        .keys
+        .toList()
+
+    /** 存在 `proxy-providers:` 段时 `proxies:` 允许为空（节点由 provider 提供）。 */
+    fun hasProxyProviders(text: String): Boolean = SanitizerYamlLines
+        .topLevelBlockIndices(SanitizerYamlLines.stripBom(text).lines(), PROVIDERS_KEY)
+        .isNotEmpty()
+
+    /**
+     * 顶层 `proxies:` 里缺 `name:` 的块状条目数。内核同样会拒绝加载整份配置。
+     *
+     * flow 写法（`- {name: x, …}`）本模块不解析，不能据此判成"缺名字"而误杀整份订阅。
+     */
+    fun itemsWithoutName(text: String): Int {
+        val lines = SanitizerYamlLines.stripBom(text).lines()
+        val block = blockRange(lines, PROXIES_KEY) ?: return 0
+        var missing = 0
+        for (i in block.start until block.end) {
+            val line = lines[i]
+            if (line.isBlank() || line.trimStart().startsWith("#")) continue
+            if (SanitizerYamlLines.leadingIndent(line) != block.itemIndent) continue
+            val trimmed = line.trimStart()
+            if (!SanitizerRules.LIST_ITEM.containsMatchIn(trimmed)) continue
+            if (trimmed.contains('{')) continue
+            if (itemNameSpan(line, block.itemIndent, i) == null) missing++
+        }
+        return missing
+    }
+
+    /** 把顶层 `proxies:` 里的重名改成唯一名，返回改名条数。 */
+    fun dedupeProxyNames(lines: MutableList<String>): Int {
+        val proxies = blockRange(lines, PROXIES_KEY) ?: return 0
+        val items = nameSpans(lines, proxies)
+        if (items.isEmpty()) return 0
+
+        // 先登记全部原有名字（含策略组名），保证生成的后缀不会撞上文档里已有的名字
+        val taken = mutableSetOf<String>()
+        taken += RESERVED_NAMES
+        nameSpans(lines, blockRange(lines, GROUPS_KEY)).forEach { taken += it.value }
+        items.forEach { taken += it.value }
+
+        val seen = mutableSetOf<String>()
+        val renamed = mutableListOf<Pair<String, String>>()
+        for (item in items) {
+            if (seen.add(item.value)) continue
+            val unique = uniqueName(item.value, taken)
+            val line = lines[item.line]
+            lines[item.line] = line.substring(0, item.start) + render(unique, item.quote) + line.substring(item.end)
+            renamed += item.value to unique
+        }
+
+        if (renamed.isNotEmpty()) {
+            val detail = renamed.joinToString(", ") { "${sanitizeLog(it.first)} → ${sanitizeLog(it.second)}" }
+            AppLog.i(SanitizerRules.LOG_TAG, "检出 ${renamed.size} 个重名节点并已改名（内核遇重名会拒绝加载整份配置）：$detail")
+        }
+        return renamed.size
+    }
+
+    private fun uniqueName(
+        base: String,
+        taken: MutableSet<String>,
+    ): String {
+        var index = 2
+        while (true) {
+            val candidate = "$base ($index)"
+            if (taken.add(candidate)) return candidate
+            index++
+        }
+    }
+
+    private fun render(
+        name: String,
+        quote: Char?,
+    ): String = when (quote) {
+        '"' -> "\"" + name.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
+        '\'' -> "'" + name.replace("'", "''") + "'"
+        else -> name
+    }
+
+    private fun blockRange(
+        lines: List<String>,
+        key: String,
+    ): Block? {
+        val keyIndex = SanitizerYamlLines.topLevelBlockIndices(lines, key).firstOrNull() ?: return null
+        val itemIndent = SanitizerYamlLines.blockItemIndent(lines, keyIndex) ?: return null
+        var end = keyIndex + 1
+        while (end < lines.size) {
+            val line = lines[end]
+            if (line.isBlank() || line.trimStart().startsWith("#")) {
+                end++
+                continue
+            }
+            if (SanitizerYamlLines.leadingIndent(line).length < itemIndent.length) break
+            end++
+        }
+        return Block(itemIndent, keyIndex + 1, end)
+    }
+
+    private fun nameSpans(
+        lines: List<String>,
+        block: Block?,
+    ): List<ItemSpan> {
+        if (block == null) return emptyList()
+        val spans = mutableListOf<ItemSpan>()
+        for (i in block.start until block.end) {
+            itemNameSpan(lines[i], block.itemIndent, i)?.let { spans.add(it) }
+        }
+        return spans
+    }
+
+    private fun itemNameSpan(
+        line: String,
+        itemIndent: String,
+        lineIndex: Int,
+    ): ItemSpan? {
+        if (SanitizerYamlLines.leadingIndent(line) != itemIndent) return null
+        val trimmed = line.trimStart()
+        // flow 写法（面板订阅的默认形式）：名字在 `{` 之后的映射里，没有独立的 name 行
+        if (SanitizerRules.LIST_ITEM.containsMatchIn(trimmed) && trimmed.contains('{')) {
+            return flowNameSpan(line, lineIndex)
+        }
+        if (!ITEM_NAME_KEY.containsMatchIn(trimmed)) return null
+        if (trimmed.contains('[')) return null
+
+        val colon = SanitizerYamlLines.unquotedColonIndex(line)
+        if (colon <= 0) return null
+        var start = colon + 1
+        while (start < line.length && line[start] == ' ') start++
+        val rest = line.substring(start)
+        if (rest.isEmpty()) return null
+
+        val quote = rest.first().takeIf { it == '"' || it == '\'' }
+        return if (quote != null) {
+            val close = findClosingQuote(rest, quote) ?: return null
+            val value = SanitizerYamlLines.unwrapQuotes(rest.substring(0, close + 1))
+            if (value.isBlank()) return null
+            ItemSpan(lineIndex, start, start + close + 1, value, quote)
+        } else {
+            val commentAt = COMMENT_START.find(rest)?.range?.first ?: rest.length
+            val value = rest.substring(0, commentAt).trimEnd()
+            if (value.isBlank()) return null
+            ItemSpan(lineIndex, start, start + value.length, value, null)
+        }
+    }
+
+    /**
+     * flow 写法条目（`- {name: x, type: …}`）里的名字区间。
+     *
+     * 值的终止位置随块状写法不同：带引号时取引号的闭合位置，不带引号时取下一个顶层
+     * `,` 或 `}`。整条订阅都是单行的 flow 映射，不存在跨行的情况。
+     */
+    private fun flowNameSpan(
+        line: String,
+        lineIndex: Int,
+    ): ItemSpan? {
+        val brace = line.indexOf('{')
+        if (brace < 0) return null
+        val key = FLOW_NAME_KEY.find(line, brace) ?: return null
+        val start = key.range.last + 1
+        if (start >= line.length) return null
+
+        val rest = line.substring(start)
+        val quote = rest.first().takeIf { it == '"' || it == '\'' }
+        if (quote != null) {
+            val close = findClosingQuote(rest, quote) ?: return null
+            val value = SanitizerYamlLines.unwrapQuotes(rest.substring(0, close + 1))
+            if (value.isBlank()) return null
+            return ItemSpan(lineIndex, start, start + close + 1, value, quote)
+        }
+        val stop = rest.indexOfFirst { it == ',' || it == '}' }
+        val value = rest.substring(0, if (stop < 0) rest.length else stop).trimEnd()
+        if (value.isBlank()) return null
+        return ItemSpan(lineIndex, start, start + value.length, value, null)
+    }
+
+    private fun findClosingQuote(
+        text: String,
+        quote: Char,
+    ): Int? {
+        var i = 1
+        while (i < text.length) {
+            val char = text[i]
+            if (quote == '"' && char == '\\') {
+                i += 2
+                continue
+            }
+            if (char == quote) return i
+            i++
+        }
+        return null
+    }
+
+    private data class Block(
+        val itemIndent: String,
+        val start: Int,
+        val end: Int,
+    )
+
+    /** 条目名在原始行中的区间：`start`（含）到 `end`（不含）即名字字面量，含引号。 */
+    private data class ItemSpan(
+        val line: Int,
+        val start: Int,
+        val end: Int,
+        val value: String,
+        val quote: Char?,
+    )
+}

@@ -1,0 +1,147 @@
+// SPDX-FileCopyrightText: 2026 Polaris Contributors
+// SPDX-License-Identifier: GPL-3.0-only
+
+package com.slte.app.ui.v5.screens
+
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
+import com.slte.app.R
+import com.slte.app.kernel.KernelProxyMember
+import com.slte.app.kernel.KernelProxyMemberKind
+import com.slte.app.kernel.PrimaryGroupName
+import com.slte.app.kernel.groupDisplayName
+import com.slte.app.ui.theme.V5ThemeColors
+import com.slte.app.ui.theme.V5Type
+import com.slte.app.ui.v5.ChipTone
+import com.slte.app.ui.v5.LatencyText
+import com.slte.app.ui.v5.RadioDot
+import com.slte.app.ui.v5.V5RowItem
+import com.slte.app.utils.Constants
+import com.slte.app.utils.extractCountryCode
+
+/**
+ * 候选成员行的共享渲染：节点页「节点选择」卡与分流组出口弹层用同一实现，
+ * 保证「同一节点在两处显示相同延迟与相同标签」（否则又是双实现漂移源）。
+ */
+
+/** 延迟标记：未测 / 超时 / 实测。 */
+internal enum class DelayMark { PENDING, TIMEOUT, MEASURED }
+
+/**
+ * 延迟展示判定（纯函数，可单测）。
+ *
+ * - null → 无数据 → 「未测」
+ * - [Constants.DELAY_PENDING]（0）→ 从未测过 → 「未测」
+ * - ≥ [Constants.DELAY_TIMEOUT]（999）→ 测过但不存活 → 「超时」
+ * - 其余 → 实测，按阈值分色（<120 好 / <300 一般 / 其余差）
+ */
+internal fun delayDisplayOf(delay: Int?): Triple<DelayMark, ChipTone, String?> {
+    if (delay == null || delay <= Constants.DELAY_PENDING) {
+        return Triple(DelayMark.PENDING, ChipTone.NEUTRAL, null)
+    }
+    if (delay >= Constants.DELAY_TIMEOUT) {
+        return Triple(DelayMark.TIMEOUT, ChipTone.DANGER, null)
+    }
+    val tone = when {
+        delay < 120 -> ChipTone.OK
+        delay < 300 -> ChipTone.WARN
+        else -> ChipTone.DANGER
+    }
+    return Triple(DelayMark.MEASURED, tone, "$delay ms")
+}
+
+@Composable
+internal fun memberLabel(
+    member: KernelProxyMember,
+    // 防御性：成员里也可能是组名。拿不到自建组集合（null）就保守不映射。
+    customNames: Set<String>? = null,
+): String = when (member.kind) {
+    KernelProxyMemberKind.GROUP ->
+        if (member.name == PrimaryGroupName) {
+            stringResource(R.string.v5_group_follow_primary)
+        } else {
+            // 自动选择 / 故障转移 是独立组，也是主组的成员，按显示名渲染
+            groupDisplayName(member.name, customNames)
+        }
+    KernelProxyMemberKind.DIRECT -> stringResource(R.string.routing_outbound_direct)
+    KernelProxyMemberKind.REJECT -> stringResource(R.string.routing_outbound_block)
+    KernelProxyMemberKind.NODE -> member.name
+}
+
+@Composable
+internal fun MemberRow(
+    member: KernelProxyMember,
+    selected: Boolean,
+    // 探测确认不可达（不是"这次超时"）：节点页据此显示离线角标。
+    offline: Boolean = false,
+    // 用户自建分流组名；null = 调用点拿不到集合，按保守行为原样显示（见 memberLabel）。
+    customGroupNames: Set<String>? = null,
+    // 可为 null：内核未运行时的只读兜底名单没有任何可切换目标，
+    // 传 null 让整行不可点且无涟漪（V5RowItem 的 v5Clickable 语义），
+    // 避免"点得动但什么都没发生"的假交互。
+    onClick: (() -> Unit)? = null,
+) {
+    val (mark, tone, label) = delayDisplayOf(member.delay)
+    // 结构项没有"延迟"这个概念（整改要求 3）：直连/拦截没有远端可探，给它显示"未测"
+    // 会让人以为"忘了测"；组出口的延迟由内核按 interval=300 自行拨测产出，与 App 测速无关。
+    val structuralRes =
+        when (member.kind) {
+            KernelProxyMemberKind.DIRECT, KernelProxyMemberKind.REJECT -> R.string.v5_delay_not_needed
+            KernelProxyMemberKind.GROUP -> R.string.v5_delay_auto
+            KernelProxyMemberKind.NODE -> null
+        }
+    V5RowItem(
+        title = memberLabel(member, customGroupNames),
+        sub = memberSubtitle(member),
+        leading = { RadioDot(on = selected) },
+        trailing = {
+            when {
+                // 离线优先于一切：节点都没了，延迟数字与"未测/超时"占位符都没有意义。
+                // 用实色区分于灰色的「超时」——两者含义完全不同，不能长得一样。
+                offline ->
+                    Text(
+                        text = stringResource(R.string.v5_node_offline),
+                        fontSize = V5Type.sp12_5,
+                        fontWeight = FontWeight.SemiBold,
+                        color = V5ThemeColors.current.danger,
+                    )
+                // 结构项若真拿到实测值（组拨测结果已回读）照样显示数字，不被占位符吞掉
+                mark == DelayMark.MEASURED && label != null -> LatencyText(label, tone)
+                // 超时是真实信号，优先于占位符
+                mark == DelayMark.TIMEOUT ->
+                    Text(
+                        text = stringResource(R.string.server_timeout),
+                        fontSize = V5Type.sp12_5,
+                        fontFamily = FontFamily.Monospace,
+                        color = V5ThemeColors.current.text3,
+                    )
+                structuralRes != null ->
+                    Text(
+                        text = stringResource(structuralRes),
+                        fontSize = V5Type.sp12_5,
+                        color = V5ThemeColors.current.text3,
+                    )
+                else ->
+                    // 节点未测/超时必须可区分：此前两者都显示"超时"
+                    Text(
+                        text = stringResource(R.string.server_untested),
+                        fontSize = V5Type.sp12_5,
+                        fontFamily = FontFamily.Monospace,
+                        color = V5ThemeColors.current.text3,
+                    )
+            }
+        },
+        onClick = onClick,
+    )
+}
+
+/** 组 → 「策略组」标记；节点 → 国家码（名称解析）。 */
+@Composable
+private fun memberSubtitle(member: KernelProxyMember): String? = when (member.kind) {
+    KernelProxyMemberKind.GROUP -> stringResource(R.string.v5_group_item)
+    KernelProxyMemberKind.NODE -> extractCountryCode(member.name).takeIf { it != "XX" }
+    else -> null
+}

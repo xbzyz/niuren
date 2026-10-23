@@ -1,0 +1,707 @@
+// SPDX-FileCopyrightText: 2026 Polaris Contributors
+// SPDX-License-Identifier: GPL-3.0-only
+
+package com.slte.app.ui.screen.server
+
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import com.slte.app.R
+import com.slte.app.data.local.NodesSectionStore
+import com.slte.app.data.repository.ServerRepository
+import com.slte.app.data.repository.SubscribeRepository
+import com.slte.app.kernel.KernelManager
+import com.slte.app.kernel.KernelProxy
+import com.slte.app.kernel.KernelProxyGroupInfo
+import com.slte.app.kernel.KernelUrlTestFailure
+import com.slte.app.kernel.SpeedTestOutcome
+import com.slte.app.kernel.cachedOfflineNodes
+import com.slte.app.kernel.cachedSpeedResults
+import com.slte.app.kernel.groupByTypeCurrentNode
+import com.slte.app.kernel.primaryGroupOf
+import com.slte.app.kernel.proxyGroups
+import com.slte.app.kernel.saveOfflineNodes
+import com.slte.app.kernel.selectAuto
+import com.slte.app.kernel.selectFallback
+import com.slte.app.kernel.selectInGroup
+import com.slte.app.kernel.selectPrimary
+import com.slte.app.kernel.speedTestOutcome
+import com.slte.app.kernel.speedTestProgressiveAndCache
+import com.slte.app.kernel.testGroup
+import com.slte.app.kernel.urlTestFailureKind
+import com.slte.app.utils.Constants
+import com.slte.app.utils.ErrorMessages
+import com.slte.app.utils.extractCountryCode
+import dagger.hilt.android.lifecycle.HiltViewModel
+import javax.inject.Inject
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
+
+@HiltViewModel
+class ServerViewModel
+@Inject
+constructor(
+    private val serverRepository: ServerRepository,
+    private val subscribeRepository: SubscribeRepository,
+    private val kernelProxy: KernelProxy,
+    private val kernelManager: KernelManager,
+    private val nodesSectionStore: NodesSectionStore,
+) : ViewModel() {
+
+    private fun hasPlan(): Boolean = subscribeRepository.getCachedSubscribeInfo()?.hasPlan ?: true
+
+    private val _data = MutableStateFlow(ServerData())
+    val data: StateFlow<ServerData> = _data.asStateFlow()
+
+    private val _errorMessageRes = MutableStateFlow<Int?>(null)
+    val errorMessageRes: StateFlow<Int?> = _errorMessageRes.asStateFlow()
+
+    private val _proxyGroups = MutableStateFlow<List<KernelProxyGroupInfo>>(emptyList())
+    val proxyGroups: StateFlow<List<KernelProxyGroupInfo>> = _proxyGroups.asStateFlow()
+
+    private val _isLoadingGroups = MutableStateFlow(false)
+    val isLoadingGroups: StateFlow<Boolean> = _isLoadingGroups.asStateFlow()
+
+    private val _customGroupNames = MutableStateFlow<Set<String>?>(null)
+
+    /**
+     * 用户自建分流组名，**只供渲染层决定显示名**（见 groupDisplayName）。
+     *
+     * 显示映射必须放过自建组：用户完全可以把自建组叫成某个旧内置组名——v1.11.6 时
+     * 「Ⓜ️ 微软」还是内置组名（`RoutingInputValidator.reservedNames` 含
+     * `RoutingGroups.map { it.name }`），用户当时**建不了**同名自建组；1.12.0 改名
+     * （提交 `1563d093`）后它才不再是保留名，所以今天完全可能存在一个叫「Ⓜ️ 微软」的
+     * 用户自建组。那是他自己的名字，不能因为内核还挂着旧名就被替他改名。
+     *
+     * **读盘时机（线程模型 + 量级证据）**：初始化时读一次并缓存，刷新时只用缓存、**不重复读盘**；
+     * 内核每次重载配置成功（[KernelManager.profileLoaded]，改分流规则会触发重载）时刷新缓存
+     * ——缓存有明确失效点，所以不会在用户增删自建组后过期误映射。
+     *
+     * 之所以不做「每次刷新都读」：routing.json 实测规模 < 1 KB（含 2 条自定义组 + 3 条直连域名的
+     * 代表性文件 675 B），容器上纯文件读 20,000 次平均 **6.0 µs**（手机内存储更慢，但同为亚毫秒级）；
+     * 而 [refreshGroups] 每次进节点页 / 选组成功 / 测速后都会调用。量级上虽可接受，但没有必要把
+     * 文件 IO 放进刷新路径——缓存 + 重载失效同时满足「不重复读盘」和「不过期」。
+     *
+     * 读盘用 [com.slte.app.kernel.RoutingStateStore.readOrNull] 而不是 loadSanitized：后者会做
+     * 清洗回写，节点页没有理由触发那次写盘（清洗语义是另一条线）。
+     *
+     * **null = 读不出来**（文件在但解析失败）→ 渲染层保守不映射；空集 = 确实没有自建组 → 照常映射。
+     * 初值也是 null：初始化那次读落地前宁可保守显示内核原名，也不要误改用户自建组。
+     */
+    val customGroupNames: StateFlow<Set<String>?> = _customGroupNames.asStateFlow()
+
+    private val _testingGroup = MutableStateFlow<String?>(null)
+    val testingGroup: StateFlow<String?> = _testingGroup.asStateFlow()
+
+    private val _isTestingAll = MutableStateFlow(false)
+
+    /** 顶部「测速」触发的全组测速是否进行中（页面只渲染策略组，单独暴露一个布尔）。 */
+    val isTestingAll: StateFlow<Boolean> = _isTestingAll.asStateFlow()
+
+    private val _speedTestTipRes = MutableStateFlow<Int?>(null)
+
+    /** 节点页「进入即自动测速」是否已跑过：VM 存活期 = 一个 App 会话，故只自动跑一次。 */
+    private var autoSpeedTestOnEnter = false
+
+    /** 全组测速结束提示（完成 / 失败），UI 取用后需 consume。 */
+    val speedTestTipRes: StateFlow<Int?> = _speedTestTipRes.asStateFlow()
+
+    /**
+     * 节点页已收起的区块（**按组名**，集合内 = 收起）。
+     *
+     * 两点是刻意的：
+     * 1. 放在 ViewModel 而不是屏幕内 `remember`：Tab 内容是
+     *    `AnimatedContent(contentKey = { tab to leaf })`，切 Tab 会销毁整棵子树，
+     *    局部状态（含 `rememberSaveable`，本仓没有 SaveableStateHolder）必丢，
+     *    表现为"收起后切走再回来又全展开"。
+     * 2. 用组名做 key 而不是组对象/下标：每次测速或订阅更新都会整体重建
+     *    `KernelProxyGroupInfo` 列表，而同名对象的 now/members 已变化故不相等，
+     *    用对象做 key 会导致折叠态在刷新后静默失效。
+     *
+     * 3. **跨冷启动持久化**（第 3 轮 N3）：存进 [NodesSectionStore]，按账号隔离。
+     *    此前只在内存里、重启复位为默认折叠，用户"展开过"的分组下次启动又全收起
+     *    （真机取证：95 冷启动全收起 → 96 用户展开 → 97 重启后又全收起）。
+     *
+     * 集合内 = 已收起。初始值从持久化存储读回，由 [syncCollapsedSections] 在区块**首次出现**时
+     * 补写（首见即收起），因此"默认折叠"不需要在 UI 里散落 if-else。
+     */
+    private val _collapsedSections = MutableStateFlow<Set<String>>(emptySet())
+    val collapsedSections: StateFlow<Set<String>> = _collapsedSections.asStateFlow()
+
+    /**
+     * 已出现过的区块键（只增不减）。
+     *
+     * "只增不减"是刻意的：折叠集合是**用户偏好记忆**，而 [KernelProxy.proxyGroups] 是逐组
+     * `runCatching`，内核重载 / 瞬时查询失败都会让某个组从某次快照里消失。若按"当前快照里
+     * 有哪些组"去裁剪折叠集合，这个组消失一次就会把用户刚收起的键抹掉，等它回来又变成
+     * 默认态——现象正是"节点选择的折叠态留不住、切走再切回就弹回"。
+     * 容器大小只受"见过的组名个数"约束，不构成泄漏。
+     */
+    private val seenSections = mutableSetOf<String>()
+
+    /** 折叠态按账号隔离（同一台设备换账号登录时不互相污染）。必须声明在 init 之前。 */
+    private val account: String = subscribeRepository.getCachedUserInfo()?.email.orEmpty()
+
+    init {
+
+        // 折叠态跨冷启动持久化（第 3 轮 N3）：先读回该账号上次的收起集合与"已见过"集合。
+        // 只读 collapsed 不够——seen 若不恢复，syncCollapsedSections 会把所有分组当"首见"
+        // 重新收起，用户展开过的分组照样被抹掉。
+        seenSections += nodesSectionStore.seenFor(account)
+        _collapsedSections.value = nodesSectionStore.collapsedFor(account)
+
+        val cachedDelays = kernelProxy.cachedSpeedResults()
+        serverRepository.getCachedServers()?.let { applyNodes(it, cachedDelays) }
+        refreshSpecialNodes()
+        // 自建组名：初始化读一次并缓存（之后只在 profileLoaded 时刷新，见 [customGroupNames]）
+        _customGroupNames.value = customGroupNamesFromStore()
+        observeKernelReloads()
+    }
+
+    private fun persistSections() {
+        nodesSectionStore.save(account, _collapsedSections.value, seenSections)
+    }
+
+    /**
+     * 内核每次(重)载配置成功后重新拉取策略组。
+     *
+     * 此前分组快照只在**进入节点页**时拉一次（LoggedInPages 的 `LaunchedEffect(Unit)`）。
+     * 于是只要内核在用户停留在节点页期间重启（改分流规则触发重载、切模式、服务被系统重建……），
+     * `_proxyGroups` 就会永久停在空列表：页面显示「27 个节点 · 0 个分组」「暂无节点，请先更新订阅」，
+     * 怎么等都不回来，只有切走再切回（重建组合→重新拉一次）才恢复——用户实测到的
+     * "一暂停连接，节点页里的东西就消失"正是这个。
+     *
+     * 挂钩 [KernelManager.profileLoaded]（内核 `Clash.load` 成功后才发出）而不是连接状态：
+     * 它保证"内核确实已有一份可查询的新配置"，此刻拉取才有意义。
+     */
+    private fun observeKernelReloads() {
+        viewModelScope.launch {
+            kernelManager.profileLoaded.collect {
+                // 分流规则变化会走重载：此刻刷新自建组名缓存（用户可能刚增删了自定义组）
+                _customGroupNames.value = customGroupNamesFromStore()
+                val groups = kernelProxy.proxyGroups()
+                // 内核刚起来的瞬间可能查不到组，此时不覆盖已有列表——保留旧数据等下一次，
+                // 免得把本来正常的页面刷成空。列表本来就是空时照常写入，否则永远自愈不了。
+                if (groups.isNotEmpty() || _proxyGroups.value.isEmpty()) {
+                    refreshPrimarySectionState(groups)
+                }
+            }
+        }
+    }
+
+    private fun refreshSpecialNodes() {
+        viewModelScope.launch {
+            val auto = kernelProxy.groupByTypeCurrentNode("URLTest")
+            val fallback = kernelProxy.groupByTypeCurrentNode("Fallback")
+            _data.update { state ->
+                state.copy(
+                    autoNode = auto,
+                    fallbackNode = fallback,
+                    autoNodeCountryCode = countryOf(auto),
+                    fallbackNodeCountryCode = countryOf(fallback),
+                )
+            }
+        }
+    }
+
+    private fun countryOf(nodeName: String?): String? = nodeName?.let { name ->
+        _data.value.nodes
+            .firstOrNull { it.name == name }
+            ?.countryCode
+            ?.takeIf { it != "XX" }
+    }
+
+    suspend fun refreshNodesForPurchase() {
+        serverRepository.fetchServers(force = true).fold(
+            onSuccess = { applyNodes(it) },
+            onFailure = { _errorMessageRes.value = ErrorMessages.forServer(it) },
+        )
+    }
+
+    fun retry() {
+        loadNodes()
+    }
+
+    fun dismissError() {
+        _errorMessageRes.value = null
+    }
+
+    fun loadNodes(force: Boolean = false) {
+        _errorMessageRes.value = null
+        _data.update { it.copy(isLoading = true) }
+        viewModelScope.launch {
+            serverRepository.fetchServers(force = force).fold(
+                onSuccess = ::applyNodes,
+                onFailure = { throwable ->
+                    _data.update { it.copy(isLoading = false) }
+                    _errorMessageRes.value = ErrorMessages.forServer(throwable)
+                },
+            )
+        }
+    }
+
+    private fun applyNodes(
+        servers: List<com.slte.app.domain.model.ServerNode>,
+        delays: Map<String, Int>? = null,
+    ) {
+        val existing = _data.value.nodes.associate { it.name to it.delay }
+        // 上次探测确认离线的节点：订阅刷新后角标要跟着回来，否则用户重启 App
+        // 就看不到"这节点已经没了"，只能靠重新测速才知道。
+        val offline = kernelProxy.cachedOfflineNodes().orEmpty()
+        val nodes =
+            servers
+                .distinctBy { it.name }
+                .mapIndexed { index, server ->
+                    NodeItem(
+                        id = index + 1,
+                        name = server.name,
+                        countryCode = extractCountryCode(server.name),
+                        type = server.type.name,
+                        host = server.host,
+                        delay = delays?.get(server.name) ?: existing[server.name],
+                        offline = server.name in offline,
+                    )
+                }
+        _data.update { it.copy(nodes = nodes, isLoading = false) }
+        refreshSpecialNodes()
+    }
+
+    fun selectNode(nodeId: Int) {
+        when (nodeId) {
+            0 -> {
+                _data.update { it.copy(selectedNodeId = 0) }
+                viewModelScope.launch {
+                    kernelProxy.selectAuto()
+                    refreshSpecialNodes()
+                    refreshGroupsIfLoaded()
+                }
+            }
+            -1 -> {
+                _data.update { it.copy(selectedNodeId = -1) }
+                viewModelScope.launch {
+                    kernelProxy.selectFallback()
+                    refreshSpecialNodes()
+                    refreshGroupsIfLoaded()
+                }
+            }
+            else -> {
+                val node = _data.value.nodes.firstOrNull { it.id == nodeId } ?: return
+                // selectedNodeId 是 v5 之前的遗留字段（v5 节点页的选中态完全由
+                // 内核回读的主组 now 决定），保留写入只为兼容既有调用方/用例。
+                _data.update { it.copy(selectedNodeId = nodeId) }
+                viewModelScope.launch {
+                    selectPrimaryMember(node.name)
+                    // 主选择组当前项变化后同步策略组快照，否则节点页高亮与
+                    // 各分流组的「当前出口」显示会停留在旧值
+                    refreshGroupsIfLoaded()
+                }
+            }
+        }
+    }
+
+    /**
+     * 节点页「节点选择」卡的主组切换（成员可以是组：自动选择 / 故障转移）。
+     * 失败必须有可见反馈——旧路径丢弃了内核返回的 Boolean，用户点了没反应。
+     *
+     * **组名不硬编码**：`primaryGroupOf` 在主组缺失（本地分流关闭 / 面板改名）时会
+     * 回退到第一个 Selectable 组，若这里写死 `PrimaryGroupName` 就会 patch 到用户
+     * 没在看的那一组，表现为"点了没用"。成功判据由 [selectInGroup] 的回读确认给出。
+     */
+    suspend fun selectPrimaryMember(memberName: String) {
+        val primaryName = primaryGroupOf(_proxyGroups.value)?.name ?: com.slte.app.kernel.PrimaryGroupName
+        if (!kernelProxy.selectPrimary(primaryName, memberName)) {
+            _errorMessageRes.value = R.string.proxy_group_select_failed
+            return
+        }
+        refreshSpecialNodes()
+        refreshGroupsIfLoaded()
+    }
+
+    /** 保留给旧调用点的入口（后台线程外的 UI 层统一走 [selectPrimaryMember]）。 */
+    fun selectPrimary(name: String) {
+        viewModelScope.launch { selectPrimaryMember(name) }
+    }
+
+    /** 仅在策略组已加载过时刷新，避免首次进入节点页前发起多余的组查询。 */
+    private suspend fun refreshGroupsIfLoaded() {
+        if (_proxyGroups.value.isEmpty()) return
+        refreshPrimarySectionState(kernelProxy.proxyGroups())
+    }
+
+    fun startSpeedTest() {
+        if (_isTestingAll.value) return
+        if (!hasPlan()) {
+            _errorMessageRes.value = R.string.dashboard_no_plan_tip
+            return
+        }
+        _errorMessageRes.value = null
+        // 先置位再启协程：点击即进入测速态，重复点击直接被上面的守卫吃掉
+        _isTestingAll.value = true
+        viewModelScope.launch {
+            // 门标志的复位必须走 finally：内核重载中 / binder 死亡 / 远程调用抛异常时，
+            // 协程体会直接跳出，写在末尾的复位永远不执行，按钮就此永久置灰（只能重启 App）。
+            try {
+                // 本地分流下结构组已 include-all，测速只 await 结构组（见 KernelProxySpeed）
+                // force = true：用户手动点测速必须真跑一轮，不能被 15s 去重窗口用缓存结果打发
+                val delays = kernelProxy.speedTestProgressiveAndCache(force = true) { }
+                refreshGroups()
+                // 测速失败的节点再逐个复核一次：只有内核明确说"不可达"才标离线，
+                // 单纯超时可能只是一次抖动，标离线会误伤活节点。
+                // delays 为空 = 内核根本没跑起来，此时不做复核（否则整页节点都会被当成失败）。
+                val offline = if (delays.isEmpty()) null else probeFailedNodes(delays)
+                offline?.let { kernelProxy.saveOfflineNodes(it) }
+                // 同一份 delays 回填节点列表：此前只刷新策略组，导致「全部节点」
+                // 列表停留在旧值、与分组卡片显示两个不同数字
+                _data.update { state ->
+                    state.copy(
+                        nodes =
+                        mergeDelays(state.nodes, delays).map { node ->
+                            if (offline == null) node else node.copy(offline = node.name in offline)
+                        },
+                    )
+                }
+                _speedTestTipRes.value =
+                    when (speedTestOutcome(delays, completed = true)) {
+                        SpeedTestOutcome.COMPLETE -> R.string.server_speed_test_done
+                        SpeedTestOutcome.PARTIAL -> R.string.server_speed_test_done
+                        SpeedTestOutcome.EMPTY -> R.string.server_speed_test_failed
+                    }
+            } finally {
+                _isTestingAll.value = false
+            }
+        }
+    }
+
+    /**
+     * 对测速失败的节点逐个复核，返回内核明确判定"不可达"的节点名。
+     *
+     * 只在测速跑出结果后调用（见 [startSpeedTest]）：内核没起来时 delays 为空，
+     * 那时把整页节点当失败去复核，会把一次环境故障放大成"所有节点都离线"。
+     *
+     * 复核并发跑，总耗时约等于单个超时（[Constants.NODE_URLTEST_TIMEOUT_MS]）。
+     */
+    private suspend fun probeFailedNodes(delays: Map<String, Int>): Set<String> {
+        if (delays.isEmpty()) return emptySet()
+        val failed =
+            _data.value.nodes
+                .map { it.name }
+                .filter { delays[it] == null || delays[it] == Constants.DELAY_TIMEOUT }
+        if (failed.isEmpty()) return emptySet()
+        return coroutineScope {
+            failed
+                .map { name ->
+                    async {
+                        name.takeIf {
+                            kernelProxy.urlTestFailureKind(it, Constants.NODE_URLTEST_TIMEOUT_MS) ==
+                                KernelUrlTestFailure.OFFLINE
+                        }
+                    }
+                }.awaitAll()
+                .filterNotNull()
+                .toSet()
+        }
+    }
+
+    fun consumeSpeedTestTip() {
+        _speedTestTipRes.value = null
+    }
+
+    /**
+     * 进入节点页时自动跑一次测速（整改要求 3）。
+     *
+     * **每个 App 会话只自动跑一次**：切 Tab 会重建节点页组合，若不节流，用户每切一次 Tab
+     * 就触发一轮全量测速（结构组测速预算 22.5s），既浪费流量又频繁打断操作。
+     * 需要新数据可点顶栏「测速」；日常延迟也由内核按 interval=300 自行拨测维护
+     * （见 kernel-core native/config/routing/routing_table.go）。
+     */
+    fun autoSpeedTestOnNodesPage() {
+        if (autoSpeedTestOnEnter) return
+        autoSpeedTestOnEnter = true
+        // 无套餐时不打网络：也不让 startSpeedTest 顺势把"无套餐"写进 errorMessageRes，
+        // 那会在用户刚进页面时就弹一条与本次操作无关的提示。
+        if (!hasPlan()) return
+        startSpeedTest()
+    }
+
+    fun updateSubscription() {
+        if (!hasPlan()) {
+            _errorMessageRes.value = R.string.dashboard_no_plan_tip
+            return
+        }
+        loadNodes(force = true)
+    }
+
+    fun loadProxyGroups() {
+        viewModelScope.launch { refreshGroups() }
+    }
+
+    /** 分流组名（排除内核保留组）：折叠键的来源。 */
+    private fun routingGroupNames(): List<String> = _proxyGroups.value
+        .map { it.name }
+        .filterNot { it in com.slte.app.kernel.RoutingReservedNames }
+
+    /**
+     * "进入节点页即全部收起"是否还没落地。
+     *
+     * 分流组列表来自内核、是**异步**拉取的：[loadProxyGroups] 只负责点火
+     * （`viewModelScope.launch`），调用返回时 `_proxyGroups` 往往还是空的。
+     * 此时直接设折叠集合会得到**空集 = 什么都没收起**——真机取证：首次与再次进入
+     * 节点页，US / HK / MO / TW 全部分流组都处于展开态。
+     *
+     * 所以 [collapseAllSections] 只置这个标记，由 [applyCollapseIfPossible] 在
+     * 分组列表就绪后真正落集合（见 [refreshPrimarySectionState]）。
+     */
+    private var collapseOnNextGroupLoad = false
+
+    /**
+     * 进入节点页时调用：全部收起（**分流组 + 主组卡**）。
+     *
+     * 主组卡（[com.slte.app.kernel.PRIMARY_SECTION_KEY]）也收：它是节点页的默认折叠项，
+     * 与 v1.6.1 首次进入的表现一致。它仍**不参与** [toggleSection] 的单开手风琴
+     * （手风琴只作用于分流组），这里只是"进页时一起收"。
+     *
+     * offline 兜底名单由界面层强制展开，不受此影响。新出现的分组由
+     * [syncCollapsedSections] 的首见即收起覆盖，不会有漏网。
+     *
+     * 必须 [persistSections]：否则这次状态只活在内存里，App 重启/杀进程后回滚到
+     * 上次落盘的集合（缺陷 P1-9）。
+     */
+    fun collapseAllSections() {
+        collapseOnNextGroupLoad = true
+        applyCollapseIfPossible()
+    }
+
+    /**
+     * 分组列表已就绪时，把待落的"全部收起"真正写进折叠集合并落盘。
+     *
+     * 列表还没到（内核未返回 / 正在重载）时直接返回，等 [refreshPrimarySectionState]
+     * 再触发一次——不做"先设空集"那种看似成功实则空转的写法。
+     *
+     * **增量写入**而不是 `names.toSet()` 整体替换：替换会把 [com.slte.app.kernel.PRIMARY_SECTION_KEY]
+     * （主组卡）一起抹掉——它既不在 [routingGroupNames] 的保留组过滤结果里，也不等于任何真实组名——
+     * 于是每次进节点页主组卡都被强行展开（真机取证：collapsed 集合从 8 项掉到 7 项，
+     * 主组卡同步弹开）。这也违反 [syncCollapsedSections] "不裁剪已存在键"的约定。
+     */
+    private fun applyCollapseIfPossible() {
+        val names = routingGroupNames()
+        if (names.isEmpty()) return
+        collapseOnNextGroupLoad = false
+        _collapsedSections.value =
+            _collapsedSections.value + names + com.slte.app.kernel.PRIMARY_SECTION_KEY
+        persistSections()
+    }
+
+    /**
+     * 切换某个区块的展开/收起。集合内 = 收起。
+     *
+     * [com.slte.app.kernel.PRIMARY_SECTION_KEY]（主组卡）与内核保留组
+     * （自动选择/故障转移/漏网之鱼）走普通开关；其余分流组走**单开手风琴**：
+     * 每条分流组都 include-all 了全部节点，而节点页滚动体是非懒加载的
+     * `Column+verticalScroll`，同时展开多组会组合出「组数 × 节点数」行
+     * （默认 10 组 × N 节点，全开 27 组）；所以展开一个分流组时把其余分流组收起。
+     * 主组卡不受手风琴影响（它本是页面主任务）——v1.7.0 曾把手风琴扩大到全组
+     * （含主组卡），点开一条分流组会把主组卡一起收走，属回归，已按 v1.6.1 恢复。
+     */
+    fun toggleSection(name: String) {
+        val routingNames = routingGroupNames()
+        _collapsedSections.value =
+            if (name in routingNames) {
+                val collapsed = com.slte.app.kernel.toggleCollapsed(_collapsedSections.value, name)
+                if (name in collapsed) collapsed else collapsed + (routingNames - name)
+            } else {
+                com.slte.app.kernel.toggleCollapsed(_collapsedSections.value, name)
+            }
+        persistSections()
+    }
+
+    /**
+     * 组列表变化后校正折叠集合：**首见即收起**（默认折叠），已见过的键一律不动。
+     *
+     * 两个保护：
+     * 1. 组列表为空时直接返回——首次进节点页 / 内核未就绪时 `_proxyGroups` 为空，此时没有
+     *    "新出现的区块"，不该做任何事；[seenSections] 也不会被污染，内核可用后的首次非空
+     *    同步照常补上默认收起（所以"首次拿到空列表"不会让默认折叠永久失效）；
+     * 2. **不做**"丢弃已不存在的组名"的裁剪。`proxyGroups()` 逐组 `runCatching`，单个组瞬时
+     *    查询失败就会从快照里消失；裁剪会把用户刚收起的键一并抹掉，那个组回来后又变回默认态
+     *    ——这正是"节点选择的折叠态留不住、切走再切回就弹回"的根因。
+     */
+    private fun syncCollapsedSections(groupNames: List<String>) {
+        if (groupNames.isEmpty()) return
+        val firstSeen =
+            (groupNames + com.slte.app.kernel.PRIMARY_SECTION_KEY).filterNot { it in seenSections }
+        if (firstSeen.isEmpty()) return
+        seenSections += firstSeen
+        _collapsedSections.value = _collapsedSections.value + firstSeen
+        // 只在真的新增了"首见"时落盘，避免每次分组刷新都写偏好
+        persistSections()
+    }
+
+    private suspend fun refreshGroups() {
+        _isLoadingGroups.value = true
+        // 不在这里读自建组名：用 init / profileLoaded 维护的缓存（见 [customGroupNames]）
+        refreshPrimarySectionState(kernelProxy.proxyGroups())
+        _isLoadingGroups.value = false
+    }
+
+    /**
+     * 读自建分流组名（只读、不触发清洗回写；见 [customGroupNames] 的注释）。
+     *
+     * 只在**初始化**与**内核重载成功**时调用，不在每次刷新里调用——避免把文件 IO 放进
+     * 节点页刷新路径（线程模型见 [customGroupNames]）。
+     *
+     * 解析失败 → null：**不能**与「没有自建组」混为一谈——[com.slte.app.kernel.RoutingStateStore.load]
+     * 在解析失败时会回退默认 state（见其 readRaw 的 getOrElse），靠空集合兜会把「读不出来」
+     * 误判成「没有自建组」，于是叫「Ⓜ️ 微软」的自建组会被误改名。
+     */
+    private fun customGroupNamesFromStore(): Set<String>? {
+        val state = kernelProxy.config.routingStateStore.readOrNull() ?: return null
+        return state.custom.map { it.name }.toSet()
+    }
+
+    /**
+     * 拉取组列表并把结果同步给折叠集合（避免各调用点各写一份）。
+     *
+     * 先写折叠集合再写 `_proxyGroups`：否则首帧会先按"全展开"组合出一份骨架，下一帧才收起，
+     * 出现可见抖动（本页滚动体非懒加载，重组的代价也更高）。
+     */
+    private suspend fun refreshPrimarySectionState(next: List<KernelProxyGroupInfo>) {
+        syncCollapsedSections(next.map { it.name })
+        _proxyGroups.value = withCachedDelays(next)
+        // 进入节点页时若分组还没到，collapseAllSections 只置了标记；这里列表就绪，补应用一次
+        if (collapseOnNextGroupLoad) applyCollapseIfPossible()
+    }
+
+    /**
+     * 未经测速的成员延迟是「未测」（[Constants.DELAY_PENDING]）而不是「超时」，
+     * 用上次测速的缓存回填这些成员，让策略组在测速前也能显示已知延迟。
+     * 已测过且失败（[Constants.DELAY_TIMEOUT]）的成员同样用缓存覆盖——
+     * 缓存里存的是历史有效值（见 KernelProxySpeed.storeableDelays）。
+     */
+    private fun withCachedDelays(groups: List<KernelProxyGroupInfo>): List<KernelProxyGroupInfo> {
+        val cached = kernelProxy.cachedSpeedResults()?.takeIf { it.isNotEmpty() } ?: return groups
+        return groups.map { group ->
+            group.copy(
+                members =
+                group.members.map { member ->
+                    val hit = cached[member.name] ?: return@map member
+                    val unmeasured =
+                        member.delay == null ||
+                            member.delay <= Constants.DELAY_PENDING ||
+                            member.delay >= Constants.DELAY_TIMEOUT
+                    if (unmeasured) member.copy(delay = hit) else member
+                },
+            )
+        }
+    }
+
+    /** 把测速结果合并进节点列表（纯函数，可单测）。 */
+    internal fun mergeDelays(
+        nodes: List<NodeItem>,
+        delays: Map<String, Int>,
+    ): List<NodeItem> = nodes.map { node ->
+        val hit = delays[node.name] ?: return@map node
+        node.copy(delay = if (hit >= Constants.DELAY_TIMEOUT) Constants.DELAY_TIMEOUT else hit)
+    }
+
+    fun selectInGroup(
+        groupName: String,
+        proxyName: String,
+    ) {
+        viewModelScope.launch {
+            if (kernelProxy.selectInGroup(groupName, proxyName)) {
+                // 就地更新（不重新查询内核，避免丢掉刚写回的延迟）；
+                // 组集合本身不变，但同步一次折叠集合以覆盖"组曾缺失"的情形。
+                val next = kernelProxy.proxyGroups()
+                _proxyGroups.value = next
+                syncCollapsedSections(next.map { it.name })
+                refreshSpecialNodes()
+            } else {
+                _errorMessageRes.value = R.string.proxy_group_select_failed
+            }
+        }
+    }
+
+    fun testGroup(groupName: String) {
+        if (_testingGroup.value != null) return
+        viewModelScope.launch {
+            _testingGroup.value = groupName
+            try {
+                val delays = kernelProxy.testGroup(groupName)
+                _proxyGroups.value =
+                    _proxyGroups.value.map { group ->
+                        if (group.name != groupName) {
+                            group
+                        } else {
+                            group.copy(
+                                members =
+                                group.members.map { member ->
+                                    delays[member.name]?.let { member.copy(delay = it) } ?: member
+                                },
+                            )
+                        }
+                    }
+            } finally {
+                // 与 startSpeedTest 同理：异常后残留会让整页测速按钮全部失效
+                _testingGroup.value = null
+            }
+        }
+    }
+}
+
+data class ServerData(
+    val nodes: List<NodeItem> = emptyList(),
+    val selectedNodeId: Int = 0,
+    val isLoading: Boolean = false,
+
+    val kernelFallbackDelay: Int? = null,
+
+    val autoNode: String? = null,
+
+    val fallbackNode: String? = null,
+
+    val autoNodeCountryCode: String? = null,
+
+    val fallbackNodeCountryCode: String? = null,
+) {
+
+    val autoDelay: Int?
+        get() =
+            nodes
+                .asSequence()
+                .mapNotNull { it.delay }
+                // > DELAY_PENDING：未测（0）不能被当成 0ms 参与取最小
+                // < DELAY_TIMEOUT：超时（999）不是有效延迟
+                .filter { it > Constants.DELAY_PENDING && it < Constants.DELAY_TIMEOUT }
+                .minOrNull()
+
+    val fallbackDelay: Int?
+        get() =
+            kernelFallbackDelay ?: nodes
+                .asSequence()
+                .mapNotNull { it.delay }
+                .filter { it > Constants.DELAY_PENDING && it < Constants.DELAY_TIMEOUT }
+                .sorted()
+                .toList()
+                .getOrNull(1)
+}
+
+data class NodeItem(
+    val id: Int = 0,
+    val name: String,
+    val countryCode: String = "XX",
+    val type: String = "",
+    val host: String = "",
+    val delay: Int? = null,
+    /**
+     * 探测确认不可达（域名不存在 / 连接被拒 / 无路由）。
+     *
+     * 与"延迟超时"是两回事：超时可能只是一次抖动，这个标记只在 urlTest
+     * 明确分类为 offline 时才置位，节点页据此显示离线角标。
+     */
+    val offline: Boolean = false,
+)

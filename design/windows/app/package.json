@@ -1,0 +1,111 @@
+{
+  "name": "polaris-windows",
+  "productName": "Polaris",
+  "version": "1.12.6",
+  "description": "北辰 Polaris Windows 客户端（便携版）",
+  "license": "GPL-3.0",
+  "author": "Polaris Contributors",
+  "private": true,
+  "main": "electron/main.js",
+  "scripts": {
+    "start": "electron .",
+    "uitest": "electron . --uitest",
+    "test:updater": "node scripts/updater-self-test.js",
+    "test:updater-timeout": "node scripts/updater-timeout-test.js",
+    "test:traffic": "node scripts/traffic-view-test.js",
+    "test:geosync": "node scripts/geosync-test.js",
+    "test:routing-sync": "node scripts/routing-sync-test.js",
+    "test:flags": "node scripts/flag-codes-test.js",
+    "test:flag-row": "node scripts/flag-row-test.js",
+    "test:dns": "node scripts/dns-config-test.js",
+    "test:rulesync": "node scripts/rulesync-test.js",
+    "test:portowner": "node scripts/portowner-test.js",
+    "test:config": "node scripts/config-defaults-test.js",
+    "test:single-source": "node scripts/single-source-test.js",
+    "test:routing-view": "node scripts/routing-view-test.js",
+    "test:panel-client": "node scripts/panel-client-test.js",
+    "test:dialog-render": "node scripts/dialog-render-test.js",
+    "test:tray": "node scripts/tray-menu-test.js",
+    "test:updater-heal": "node scripts/updater-heal-test.js",
+    "test:updater-url": "node scripts/updater-url-test.js",
+    "test:custom-ruleset": "node scripts/custom-ruleset-reserved-test.js",
+    "test:package-manifest": "node scripts/package-manifest-test.js",
+    "test:repack-assertions": "node scripts/verify-repack-test.js",
+    "test:updater-atomic": "node scripts/updater-atomic-test.js",
+    "test:updater-staging-lock": "node scripts/updater-staging-lock-test.js",
+    "test:updater-integrity": "node scripts/updater-integrity-test.js",
+    "test:check-failure": "node scripts/update-check-failure-test.js",
+    "test:leftover-kernel": "node scripts/leftover-kernel-test.js",
+    "test:updater-observability": "node scripts/updater-observability-test.js",
+    "test:updater-proxy": "node scripts/updater-proxy-test.js",
+    "test:version-compare": "node scripts/version-compare-test.js",
+    "test:offline": "npm run test:updater && npm run test:updater-timeout && npm run test:traffic && npm run test:geosync && npm run test:rulesync && npm run test:routing-sync && npm run test:flags && npm run test:flag-row && npm run test:dns && npm run test:portowner && npm run test:config && npm run test:single-source && npm run test:routing-view && npm run test:panel-client && npm run test:dialog-render && npm run test:tray && npm run test:updater-heal && npm run test:updater-url && npm run test:package-manifest && npm run test:repack-assertions && npm run test:updater-atomic && npm run test:updater-staging-lock && npm run test:updater-integrity && npm run test:updater-observability && npm run test:check-failure && npm run test:leftover-kernel && npm run test:custom-ruleset && npm run test:version-compare && npm run test:updater-proxy",
+    "test:real": "node scripts/preflight-creds.js real -- && electron scripts/real-test.js --",
+    "test:ui": "node scripts/preflight-creds.js ui -- && electron . --uitest --",
+    "core": "python scripts/fetch-core.py",
+    "geo": "python scripts/fetch-geo.py",
+    "pack": "electron-builder --win --x64 --dir",
+    "dist": "electron-builder --win --x64",
+    "clean": "node scripts/clean.js"
+  },
+  "dependencies": {
+    "js-yaml": "5.4.3",
+    "ws": "8.22.0"
+  },
+  "devDependencies": {
+    "electron": "44.7.0",
+    "electron-builder": "26.15.3"
+  },
+  "build": {
+    "appId": "app.polaris.windows",
+    "productName": "Polaris",
+    "copyright": "Copyright (c) Polaris Contributors",
+    "asar": true,
+    "npmRebuild": false,
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "electron/**/*",
+      "src/**/*",
+      "scripts/real-test.js",
+      "scripts/ui-test.js",
+      "package.json",
+      "node_modules/js-yaml/**/*",
+      "node_modules/ws/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "core",
+        "to": "core",
+        "filter": ["**/*"]
+      },
+      {
+        "from": "resources/geo",
+        "to": "geo",
+        "filter": ["**/*"]
+      },
+      {
+        "from": "resources/rules",
+        "to": "rules",
+        "filter": ["**/*"]
+      },
+      {
+        "from": "build/portable-readme.txt",
+        "to": "../使用说明.txt"
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "zip",
+          "arch": ["x64"]
+        }
+      ],
+      "artifactName": "Polaris-portable-${version}.zip",
+      "icon": "build/icon.ico"
+    },
+    "compression": "maximum"
+  }
+}

@@ -1,0 +1,294 @@
+// SPDX-FileCopyrightText: 2026 Polaris Contributors
+// SPDX-License-Identifier: GPL-3.0-only
+
+package com.slte.app.kernel
+
+/**
+ * 内置分流组的 Kotlin 侧镜像，仅供设置页展示与开关写入（routing.json 的
+ * groups 键）。真源是内核 `native/config/routing/routing_table.go`——名称
+ * 必须逐字一致（含 emoji），否则开关写不进对应组。列表顺序即规则匹配
+ * 优先级，也必须与内核表保持一致。
+ *
+ * 2026-10-10：「📢 Google FCM」「📢 苹果推送通知」两组移除——排在「🌏 Google」
+ * 与「🍎 苹果服务」之后时规则会被前面的组提前命中，开关设成什么出口都不生效。
+ * 2026-10-13：「♊️ Google Gemini」「💬 Claude」「💬 OpenAI」合并为「🤖 AI」
+ * （同一类问题的第三例：旧 Gemini 组带着 GEOSITE,google / google-play）。
+ * 2026-10-14：按用户要求从 23 组简化到 12 组，原则是「一个开关对应一个用户
+ * 能说清的东西」：
+ *  - X/Instagram/Facebook/WhatsApp → 「📲 社交媒体」；油管/奈飞 → 「📺 流媒体」；
+ *  - 微软三组（云盘/服务/Bing）合并为一组「Ⓜ️ 微软」并默认 **direct**（用户反馈
+ *    「太费流量」）——这是合并当时的口径，该组的**覆盖范围**在随后两次收窄中变更，
+ *    见下方两条；
+ *  - 取消 🐱 GitHub / 🌏 Google Play / 🌏 Google / Ⓜ️ 微软Bing：前三个本来就都是
+ *    proxy，出口行为不变，却消灭了两个死开关；📺 哔哩哔哩 / 🎶 网易音乐 并入
+ *    「🎯 国内直连」（走直连，不需要单独开关）；
+ *  - 「🍃 应用净化」保持默认关闭，「🛑 广告拦截」改为默认开启。
+ *  - 2026-10-14 续：「Ⓜ️ 微软」收窄为「云盘 + 登录 + 系统更新 + Azure」——宽口径的
+ *    `GEOSITE,microsoft`（752 条）会把已取消的 GitHub 系列吞成**直连**，收窄后
+ *    GitHub / Bing / Office / Outlook / Teams 落回「🌏 国外穿墙」（详见 `routing_table.go`）。
+ *  - 2026-10-14 三续：收窄漏了该组声明的种子——`onedrive.yaml` 当时是 ACL4SSR
+ *    `OneDrive.list` + `Ruleset/Microsoft.list` 的合并（92 条，含 `DOMAIN-KEYWORD,microsoft`、
+ *    `bing`/`office`/`outlook`/`msn`/裸 `live.com`），而规则链里 RULE-SET 排在内联规则**之前**，
+ *    等于把删掉的 `GEOSITE,microsoft` 又接了回来。规则仓库已去掉 `alsoRuleset: ['Microsoft']`
+ *    （92 → 17 条），身份/认证族 6 条改写进组内联规则。该组的 `Providers`（onedrive）与
+ *    出口（direct）不变。
+ *  - 2026-10-15：「Ⓜ️ 微软」改名「Ⓜ️ 微软云盘」（原名只覆盖云盘 + 登录 + 更新 + Azure，叫「微软」名不副实）；
+ *    别名表方向翻转为「Ⓜ️ 微软」→「Ⓜ️ 微软云盘」，旧开关与拖动顺序照旧迁移。
+ * 已取消且**刻意不做别名映射**的旧名见 [LegacyGroupAliases] 的说明。
+ */
+data class RoutingGroupInfo(
+    val name: String,
+    val defaultOn: Boolean,
+    val defaultOut: String, // proxy | direct | block
+)
+
+/** 合并后的 AI 组名（唯一真源，必须与内核 `routing_table.go` 的 `AIGroupName` 逐字一致）。 */
+const val AI_GROUP_NAME: String = "🤖 AI"
+
+/**
+ * 已改名的历史分流组名 → 当前组名（真源：内核 `routing_table.go` 的
+ * `legacyGroupAliases`，12 条必须逐字一致）。
+ *
+ * 用户已保存的 `routing.json` 里 `groups` / `order` 仍是旧名，直接当未知名丢弃的话，
+ * 用户自己调过的开关会退回内置默认值、拖动顺序会退回内置顺序——静默丢设置。
+ *
+ * **刻意不映射**：`🐱 GitHub` / `🌏 Google Play` / `🌏 Google` / `Ⓜ️ 微软Bing`
+ * 是这次被取消（而非改名）的组，旧开关状态无处安放；硬映射会把「我关掉 Google」
+ * 变成「我关掉整个国外穿墙」，比丢一个开关更糟。
+ */
+val LegacyGroupAliases: Map<String, String> =
+    mapOf(
+        "♊️ Google Gemini" to AI_GROUP_NAME,
+        "💬 Claude" to AI_GROUP_NAME,
+        "💬 OpenAI" to AI_GROUP_NAME,
+        "📲 X" to "📲 社交媒体",
+        "📸 Instagram" to "📲 社交媒体",
+        "📲 Facebook" to "📲 社交媒体",
+        "📲 WhatsApp" to "📲 社交媒体",
+        "📹 油管视频" to "📺 流媒体",
+        "🎥 奈飞视频" to "📺 流媒体",
+        "Ⓜ️ 微软" to "Ⓜ️ 微软云盘",
+        "📺 哔哩哔哩" to "🎯 国内直连",
+        "🎶 网易音乐" to "🎯 国内直连",
+    )
+
+/** 历史组名归一为当前组名；非历史名原样返回（与内核 `canonicalGroupName` 同语义）。 */
+fun canonicalGroupName(name: String): String = LegacyGroupAliases[name] ?: name
+
+/**
+ * 节点页卡片标题的**显示名**（只用于渲染）。
+ *
+ * 随包内核（libclash.so）里的组名可能还是旧名——改名只进了 Go 源码、没重建 .so，
+ * 节点页拿到的就是内核返回的「Ⓜ️ 微软」，而设置页读的是 Kotlin 镜像 [RoutingGroups]，
+ * 显示的是「Ⓜ️ 微软云盘」；本函数把两页的显示名对齐。
+ *
+ * 规则：
+ * - [customNames] 命中 → **原样返回**。映射的键是**旧内置名**（如「Ⓜ️ 微软」），而 1.12.0
+ *   改名（提交 `1563d093`）后它不再是保留名：[RoutingInputValidator.reservedNames] 含
+ *   `RoutingGroups.map { it.name }`，改名**前**用户建不了同名自建组，改名**后**可以——所以
+ *   今天完全可能存在一个用户自建组也叫「Ⓜ️ 微软」。那是用户自己的名字，不能因为内核还挂着
+ *   旧名就被替他改名（随包旧 .so 下这种自建组会被内核按保留名跳过、暂时看不见，.so 重建后
+ *   就会出现，所以这条守卫是前瞻性的、仍然必要）；
+ * - 否则按 [canonicalGroupName] 归一（当前名与未知名都恒等返回）；
+ * - [customNames] 传 null = 调用点拿不到自建组集合 → **保守不映射**：宁可不改名，
+ *   也不要误改用户自建组。
+ *
+ * **绝不能**用在折叠键、选组参数、拖动顺序或 routing.json 上——那些一律继续用内核原名
+ * （[KernelProxyGroupInfo.name] 本身就是内核原名，映射只允许出现在渲染表达式里）。
+ */
+fun groupDisplayName(name: String, customNames: Set<String>?): String = if (customNames == null || name in customNames) name else canonicalGroupName(name)
+
+/**
+ * 迁移已保存的组开关（纯函数，可单测）：旧组名折叠到当前组名，
+ * 三者中任一为开 → 新组为开。
+ *
+ * 显式的新组名优先于任何旧名——否则用户在新版里把「🤖 AI」关掉后，
+ * 文件里残留的旧键会把它强行打开，开关就再也关不掉了。
+ * 其余未知名照旧保留（内核只认表内组名，它们本来就不生效）。
+ */
+fun migrateLegacyGroups(groups: Map<String, Boolean>): Map<String, Boolean> {
+    if (groups.keys.none { it in LegacyGroupAliases }) return groups
+    val out = LinkedHashMap<String, Boolean>(groups.size)
+    for ((name, on) in groups) {
+        if (name in LegacyGroupAliases) continue
+        out[name] = on
+    }
+    for (current in LegacyGroupAliases.values.toSet()) {
+        // 显式的新组名优先：用户在新版里关掉的组，不能被文件里残留的旧键重新打开。
+        if (current in out) continue
+        var found = false
+        var enabled = false
+        for ((legacy, target) in LegacyGroupAliases) {
+            if (target != current) continue
+            val on = groups[legacy] ?: continue
+            found = true
+            if (on) enabled = true
+        }
+        if (found) out[current] = enabled
+    }
+    return out
+}
+
+/**
+ * 迁移已保存的组顺序（纯函数，可单测）：旧组名归一后去重保序，
+ * 于是「三个旧组」里最靠前的那个位置就是新组的位置。未知名保留
+ * （[orderedGroups] 与内核 `OrderedTable` 都会忽略它们）。
+ */
+fun migrateLegacyOrder(order: List<String>): List<String> {
+    if (order.none { it in LegacyGroupAliases }) return order
+    val out = LinkedHashSet<String>(order.size)
+    order.forEach { out += canonicalGroupName(it) }
+    return out.toList()
+}
+
+val RoutingGroups: List<RoutingGroupInfo> =
+    listOf(
+        RoutingGroupInfo("📲 电报消息", defaultOn = true, defaultOut = "proxy"),
+        RoutingGroupInfo("🎧 TikTok", defaultOn = true, defaultOut = "proxy"),
+        RoutingGroupInfo("📲 社交媒体", defaultOn = true, defaultOut = "proxy"),
+        RoutingGroupInfo("📺 流媒体", defaultOn = true, defaultOut = "proxy"),
+        RoutingGroupInfo(AI_GROUP_NAME, defaultOn = true, defaultOut = "proxy"),
+        RoutingGroupInfo("🎮 游戏平台", defaultOn = true, defaultOut = "proxy"),
+        // 「Ⓜ️ 微软云盘」（2026-10-15 由「Ⓜ️ 微软」改名）默认 direct：2026-10-13 按用户要求（「要不太费流量了」）把云盘整组
+        // 直连；2026-10-14 再收窄成「云盘 + 登录 + 系统更新 + Azure」，Bing / Office /
+        // Outlook / Teams / GitHub 交回「🌏 国外穿墙」。它必须排在「🌏 国外穿墙」之前，
+        // 否则 geolocation-!cn 会先吃掉 onedrive / azure 分类。
+        RoutingGroupInfo("Ⓜ️ 微软云盘", defaultOn = true, defaultOut = "direct"),
+        RoutingGroupInfo("🍎 苹果服务", defaultOn = true, defaultOut = "direct"),
+        RoutingGroupInfo("🎯 国内直连", defaultOn = true, defaultOut = "direct"),
+        // 「🌏 国外穿墙」声明的是 geolocation-!cn 兜底分类，必须排在所有具体平台组
+        // 之后；只有两个 block 组排在它后面。
+        RoutingGroupInfo("🌏 国外穿墙", defaultOn = true, defaultOut = "proxy"),
+        RoutingGroupInfo("🍃 应用净化", defaultOn = false, defaultOut = "block"),
+        RoutingGroupInfo("🛑 广告拦截", defaultOn = true, defaultOut = "block"),
+    )
+
+/** 主选择组名：唯一真源，必须与内核 GroupNameSelector（routing_table.go）逐字一致。 */
+const val PrimaryGroupName: String = "🚀 节点选择"
+
+/** 结构出口名，与内核 outboundDirect / outboundReject 一致。 */
+const val OUTBOUND_DIRECT: String = "DIRECT"
+const val OUTBOUND_REJECT: String = "REJECT"
+
+/** 配置层 rule 的默认出口值（[RoutingGroupInfo.defaultOut]）。注意与上面的内核内建名大小写不同。 */
+const val OUTBOUND_CONFIG_PROXY: String = "proxy"
+const val OUTBOUND_CONFIG_DIRECT: String = "direct"
+const val OUTBOUND_CONFIG_BLOCK: String = "block"
+
+/** 主组的自动测速组名（内核 GroupNameAuto），保留为用户可选出口。 */
+const val AUTO_GROUP_NAME: String = "自动选择"
+
+/** 主组的故障转移组名（内核 GroupNameFallback）。按产品要求从节点页 UI 移除。 */
+const val FALLBACK_GROUP_NAME: String = "故障转移"
+
+/**
+ * 节点页各组成员里实际可见的成员（纯函数，可单测）。
+ *
+ * 产品决策：**移除「故障转移」入口**（用户反馈其行为不符合预期），**保留「自动选择」**
+ * ——它是内核主组的首位成员即默认出口，且本次已修好"选择不生效"的两个缺陷
+ * （`PatchSelector` 吞错 → 改为回读 `now` 确认；`selectPrimary` 硬编码组名 → 改为传入
+ * 实际展示的组名）。
+ *
+ * 必须保留 `now` 命中项：否则当某组当前出口正是「故障转移」时，卡片头部会显示该名字
+ * 而列表里没有任何勾选行（"鬼选中"）。
+ */
+fun visibleGroupMembers(
+    members: List<KernelProxyMember>,
+    now: String?,
+): List<KernelProxyMember> = members.filter { member ->
+    member.name != FALLBACK_GROUP_NAME || member.name == now
+}
+
+/**
+ * 按用户自定义顺序重排内置分流表（纯函数，便于单测）。
+ *
+ * 规则：
+ * - [order] 中出现的组名按给定次序排在前（重复只取首次出现）；
+ * - [order] 里的历史组名先经 [canonicalGroupName] 归一，改名前的拖动顺序不能丢；
+ * - [order] 里没有的组，按 [RoutingGroups] 的内置默认顺序追加在后；
+ * - [order] 里的未知名一律忽略——**绝不丢组**。
+ *
+ * 未传 [order]（空列表）时返回 [RoutingGroups] 本身，即内置默认顺序。
+ */
+fun orderedGroups(order: List<String> = emptyList()): List<RoutingGroupInfo> {
+    if (order.isEmpty()) return RoutingGroups
+    val byName = RoutingGroups.associateBy { it.name }
+    val picked = LinkedHashMap<String, RoutingGroupInfo>()
+    order.forEach { raw ->
+        val name = canonicalGroupName(raw)
+        byName[name]?.let { picked.putIfAbsent(name, it) }
+    }
+    RoutingGroups.forEach { picked.putIfAbsent(it.name, it) }
+    return picked.values.toList()
+}
+
+/** 内核保留组名（结构组 + 兜底组），与 Go 侧 GroupName* 常量一致，自定义组不得占用。 */
+val RoutingReservedNames: Set<String> =
+    linkedSetOf(PrimaryGroupName, AUTO_GROUP_NAME, FALLBACK_GROUP_NAME, "🐟 漏网之鱼")
+
+/**
+ * 节点页「节点选择」主组卡的折叠键。
+ *
+ * 刻意不用组名：主组在本地分流关闭 / 面板改名时会回退到"第一个 Selector 组"（见 [primaryGroupOf]），
+ * 用组名做键有两个坑——
+ * 1. 回退名恰好与某条分流组同名时，两张卡共用同一个键，收一张连带另一张；
+ * 2. 解析结果在刷新之间漂移时，用户刚收起的键对不上，卡片自己弹回展开。
+ * 该键含不可见字符，不可能与任何真实组名相等。
+ */
+const val PRIMARY_SECTION_KEY: String = "\u0000primary"
+
+/**
+ * 节点页区块折叠集合的切换（纯函数，可单测）。集合内 = **已收起**。
+ *
+ * 语义仍是"黑名单（收起集合）"：不在集合里 = 展开。但**初始值不再是空集**——
+ * 产品要求节点页分组"默认折叠"，由 ServerViewModel 在区块**首次出现**时把键写进集合
+ * （首见即收起）。所以 UI 侧只需要一次 `name in collapsed` 判断，不需要散落 if-else。
+ *
+ * key 必须是**跨刷新稳定的标识**：每次测速/订阅更新都会整体重建组对象
+ * （同名对象的 now/members 已变，data class 不相等），用对象或下标做 key
+ * 会让折叠态在刷新后静默失效。主组卡用 [PRIMARY_SECTION_KEY]，其余用组名。
+ */
+fun toggleCollapsed(
+    current: Set<String>,
+    name: String,
+): Set<String> = if (name in current) current - name else current + name
+
+/**
+ * 解析节点页「节点选择」卡对应的主组（纯函数，可单测）。
+ *
+ * 顺序即契约：
+ * 1. 精确名命中（本地分流开启时的正常路径）；
+ * 2. 第一个可选（Selector）组——本地分流关闭 / 面板改名时的回退，
+ *    保证不会出现「没有任何节点被选中」；
+ * 3. 都没有 → null（UI 显示空态）。
+ *
+ * 注意不要用 `now == null` 判空态：主组存在但尚无选中项时要照常渲染成员列表。
+ */
+fun primaryGroupOf(groups: List<KernelProxyGroupInfo>): KernelProxyGroupInfo? {
+    val byName = groups.firstOrNull { it.name == PrimaryGroupName }
+    return byName ?: groups.firstOrNull { it.selectable }
+}
+
+/**
+ * 按面板节点顺序重排主组成员（纯函数，可单测）。
+ *
+ * 内核 `include-all` 并入的成员会被 mihomo 的 `slices.Sort` 按 UTF-8 字节序
+ * 排序，与面板 API 顺序不一致；而 Kotlin 的 `String.compareTo` 是 UTF-16
+ * code unit 序，含 emoji 的节点名两者结果不同——所以要按索引映射重排，
+ * 不做字符串比较。
+ *
+ * 规则：结构项（组 / DIRECT / REJECT）保持内核相对位置；节点段按 [nodeOrderIndex]
+ * 排序；不在面板列表里的成员（仅来自 proxy-provider）按内核序追加到节点段末尾。
+ * [nodeOrderIndex] 为空时原样返回内核序（降级，绝不丢成员）。
+ */
+fun orderMembers(
+    members: List<KernelProxyMember>,
+    nodeOrderIndex: Map<String, Int>,
+): List<KernelProxyMember> {
+    if (nodeOrderIndex.isEmpty()) return members
+    val structural = members.filter { it.kind != KernelProxyMemberKind.NODE }
+    val nodes = members.filter { it.kind == KernelProxyMemberKind.NODE }
+    if (nodes.isEmpty()) return members
+    val ordered = nodes.sortedBy { nodeOrderIndex[it.name] ?: Int.MAX_VALUE }
+    return structural + ordered
+}

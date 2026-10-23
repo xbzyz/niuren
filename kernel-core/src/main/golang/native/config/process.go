@@ -1,0 +1,263 @@
+// SPDX-FileCopyrightText: The Clash Meta for Android Authors
+// SPDX-FileCopyrightText: 2026 Polaris Contributors (modifications)
+// SPDX-License-Identifier: GPL-3.0-only
+//
+// Derived from Clash Meta for Android (https://github.com/MetaCubeX/ClashMetaForAndroid).
+// Upstream copyright retained per THIRD-PARTY-NOTICES.md.
+
+package config
+
+import (
+	"encoding/json"
+	"errors"
+	"fmt"
+	"strings"
+
+	"github.com/dlclark/regexp2"
+
+	"cfa/native/common"
+
+	"github.com/metacubex/mihomo/common/utils"
+	"github.com/metacubex/mihomo/config"
+	C "github.com/metacubex/mihomo/constant"
+	"github.com/metacubex/mihomo/log"
+)
+
+var processors = []processor{
+	patchExternalController, // must before patchOverride, so we only apply ExternalController in Override settings
+	patchOverride,
+	patchLocalRouting, // 本地分流（Karing 式）：在面板规则被处理前整体替换，须在 patchRules 之前
+	patchGeneral,
+	patchProfile,
+	patchGeoXUrl, // 安全:必须晚于 override 合并、早于 executor.setGeneral 的 geodata URL 注入，不得被订阅覆写
+	patchDns,
+	patchRules,
+	patchTun,
+	patchListeners,
+	patchProviders,
+	validConfig,
+}
+
+type processor func(cfg *config.RawConfig, profileDir string) error
+
+func patchOverride(cfg *config.RawConfig, _ string) error {
+	if err := json.NewDecoder(strings.NewReader(ReadOverride(OverrideSlotPersist))).Decode(cfg); err != nil {
+		log.Warnln("Apply persist override: %s", err.Error())
+	}
+	if err := json.NewDecoder(strings.NewReader(ReadOverride(OverrideSlotSession))).Decode(cfg); err != nil {
+		log.Warnln("Apply session override: %s", err.Error())
+	}
+
+	return nil
+}
+
+func patchExternalController(cfg *config.RawConfig, _ string) error {
+	cfg.ExternalController = ""
+	cfg.ExternalControllerTLS = ""
+	// 安全:订阅内容不得开启任何 REST 控制面(含 Unix socket / named pipe)或自带 secret
+	cfg.ExternalControllerUnix = ""
+	cfg.ExternalControllerPipe = ""
+	cfg.Secret = ""
+
+	return nil
+}
+
+func patchGeneral(cfg *config.RawConfig, _ string) error {
+	cfg.Interface = ""
+	cfg.RoutingMark = 0
+
+	// 安全:订阅内容不得打开任何入站监听/局域网入口(flow-style、引号键等
+	// 可绕过 app 侧行级脱敏,这里做最终兜底)
+	cfg.Port = 0
+	cfg.SocksPort = 0
+	cfg.RedirPort = 0
+	cfg.TProxyPort = 0
+	cfg.MixedPort = 0
+	cfg.ShadowSocksConfig = ""
+	cfg.VmessConfig = ""
+	cfg.AllowLan = false
+	cfg.BindAddress = ""
+	cfg.Authentication = nil
+	cfg.Tunnels = nil
+	cfg.TuicServer = config.RawTuicServer{}
+	cfg.Listeners = nil
+	cfg.Hosts = nil
+	cfg.TLS = config.RawTLS{}
+	// 安全:订阅不得启用 iptables 流量劫持(无 tproxy 端口时 executor 会 os.Exit(2) 崩溃)
+	cfg.IPTables = config.RawIPTables{}
+	// 安全:订阅不得指定 NTP 服务器(时间源劫持,可影响证书有效期判断与缓存语义),
+	// 一律回退内置默认值;app 侧清洗同键整块丢弃,此处为最终兜底。
+	// 注意 geox-url 不在此处复位——patchGeoXUrl 用 officialGeoXUrls 单独兜底(比 DefaultRawConfig 更明确)。
+	cfg.NTP = config.DefaultRawConfig().NTP
+
+	return nil
+}
+
+func patchProfile(cfg *config.RawConfig, _ string) error {
+	// 本地分流启用时开启选择持久化：分流组/主选择组的用户选择跨重连存活，
+	// 且此时面板组已被替换、不存在"面板组错位恢复"的问题；关闭时维持原状
+	// （StoreSelected=false，面板组语义不变）。
+	cfg.Profile.StoreSelected = localRoutingEnabled
+	cfg.Profile.StoreFakeIP = true
+
+	// 安全:订阅不得携带正则匹配脚本(ReDoS 输入面,app 侧脱敏可被绕过)
+	cfg.ClashForAndroid.UiSubtitlePattern = ""
+
+	return nil
+}
+
+// 自家后端域名：必须与 app 侧 RemoteConfig.ALLOWED_HOST_SUFFIXES 保持同步，
+// 新增白名单域时同步此清单（app 清洗注入 + 内核兜底双防线一致）
+var directDomains = []string{"example.com"}
+
+func patchDns(cfg *config.RawConfig, _ string) error {
+	// 安全:订阅不得开启本机/局域网 DNS 监听(未认证递归解析器)
+	cfg.DNS.Listen = ""
+
+	// 保存 App 侧 Sanitizer 注入的 fake-ip-filter 条目（面板域名等），
+	// 重置 DNS 后合并回来，防止面板域名被 fake-ip 劫持导致 API 请求失败
+	appInjectedFilters := cfg.DNS.FakeIPFilter
+
+	// 安全:订阅不得提供 DNS 上游/解析模式(fake-ip 范围、redir-host、自定
+	// nameserver/fallback/policy 等),一律重置为应用侧默认解析,防止订阅方
+	// nameserver 接管全设备解析
+	cfg.DNS = config.DefaultRawConfig().DNS
+	cfg.DNS.Enable = true
+	cfg.DNS.NameServer = defaultNameServers
+	cfg.DNS.EnhancedMode = C.DNSFakeIP
+	cfg.DNS.FakeIPRange = defaultFakeIPRange
+	cfg.DNS.FakeIPFilter = defaultFakeIPFilter
+
+	cfg.ClashForAndroid.AppendSystemDNS = true
+
+	if cfg.ClashForAndroid.AppendSystemDNS {
+		cfg.DNS.NameServer = append(cfg.DNS.NameServer, "system://")
+	}
+
+	// 合并 App 侧注入的 fake-ip-filter：面板域名等业务域名不走 fake-ip
+	for _, f := range appInjectedFilters {
+		found := false
+		for _, existing := range cfg.DNS.FakeIPFilter {
+			if strings.EqualFold(existing, f) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			cfg.DNS.FakeIPFilter = append(cfg.DNS.FakeIPFilter, f)
+		}
+	}
+
+	// 自家后端域名不进 fake-ip：否则内核抓订阅时解析到 fake-ip 会回环失败。
+// app 侧清洗已注入完整列表，此处逐项兜底缺失域名（大小写不敏感、幂等）
+	for _, domain := range directDomains {
+		found := false
+		for _, f := range cfg.DNS.FakeIPFilter {
+			if strings.Contains(strings.ToLower(f), domain) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			cfg.DNS.FakeIPFilter = append(cfg.DNS.FakeIPFilter, "+."+domain)
+		}
+	}
+
+	return nil
+}
+
+// 官方 geodata 下载地址（与 foss/golang/clash/config/config.go:578-583 的
+// DefaultRawConfig 保持一致）。订阅里出现 geox-url 即复位为这一组，而不是
+// 整键清空——清空会让 geodata 失去数据源，导致所有 GEOIP/GEOSITE 规则失效。
+var officialGeoXUrls = config.RawGeoXUrl{
+	Mmdb:    "https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/geoip.metadb",
+	ASN:     "https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/GeoLite2-ASN.mmdb",
+	GeoIp:   "https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/geoip.dat",
+	GeoSite: "https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/geosite.dat",
+}
+
+// 安全:必须早于 geodata URL 注入(executor.setGeneral)，且不得被订阅覆写。
+// geox-url 可控即 SSRF——内核会用它发起 HTTPS 请求取回数据并当规则加载
+// （executor.go:423-426 的 geodata.SetGeoIpUrl/SetGeoSiteUrl/SetMmdbUrl/SetASNUrl），
+// 兼具「让内核替攻击者发请求」与「注入内核规则数据」两重风险。
+// app 侧清洗层已做第一道防线，但清洗层是行级 YAML 改写 + 黑名单设计，
+// 清单外的键形态不产生任何信号，故在此做最终兜底。
+func patchGeoXUrl(cfg *config.RawConfig, _ string) error {
+	cfg.GeoXUrl = officialGeoXUrls
+	return nil
+}
+
+// 自家后端域名直连规则兜底：app 侧清洗已注入列表，此处逐项补齐缺失规则，
+// 防止订阅 rules 被绕过时业务 API 走代理（与 app 侧 ALLOWED_HOST_SUFFIXES 一致）。
+func patchRules(cfg *config.RawConfig, _ string) error {
+	var missing []string
+	for _, domain := range directDomains {
+		found := false
+		for _, r := range cfg.Rule {
+			if strings.HasPrefix(r, "DOMAIN-SUFFIX,"+domain+",DIRECT") {
+				found = true
+				break
+			}
+		}
+		if !found {
+			missing = append(missing, "DOMAIN-SUFFIX,"+domain+",DIRECT")
+		}
+	}
+	if len(missing) > 0 {
+		// 规则按序首匹配生效：插到头部，避免被订阅末尾的 MATCH 规则吞掉
+		cfg.Rule = append(missing, cfg.Rule...)
+	}
+	return nil
+}
+
+func patchTun(cfg *config.RawConfig, _ string) error {
+	cfg.Tun.Enable = false
+	cfg.Tun.AutoRoute = false
+	cfg.Tun.AutoDetectInterface = false
+	return nil
+}
+
+func patchListeners(cfg *config.RawConfig, _ string) error {
+	// 安全:订阅不得绑定任何入站监听(socks/http/mixed/ss/vmess/trojan/
+	// hysteria2/tuic 等一律移除;patchGeneral 已清空,此处作纵深防御)
+	cfg.Listeners = nil
+	return nil
+}
+
+func patchProviders(cfg *config.RawConfig, profileDir string) error {
+	forEachProviders(cfg, func(index int, total int, key string, provider map[string]any, prefix string) {
+		path, _ := provider["path"].(string)
+		if len(path) > 0 {
+			path = common.ResolveAsRoot(path)
+		} else if url, ok := provider["url"].(string); ok {
+			path = prefix + "/" + utils.MakeHash([]byte(url)).String() // same as C.GetPathByHash
+		} else {
+			return // both path and url are empty, maybe inline provider
+		}
+		provider["path"] = profileDir + "/providers/" + path
+	})
+
+	return nil
+}
+
+func validConfig(cfg *config.RawConfig, _ string) error {
+	if len(cfg.Proxy) == 0 && len(cfg.ProxyProvider) == 0 {
+		return errors.New("profile does not contain `proxies` or `proxy-providers`")
+	}
+
+	if _, err := regexp2.Compile(cfg.ClashForAndroid.UiSubtitlePattern, 0); err != nil {
+		return fmt.Errorf("compile ui-subtitle-pattern: %s", err.Error())
+	}
+
+	return nil
+}
+
+func process(cfg *config.RawConfig, profileDir string) error {
+	for _, p := range processors {
+		if err := p(cfg, profileDir); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}

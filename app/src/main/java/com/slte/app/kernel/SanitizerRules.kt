@@ -1,0 +1,97 @@
+// SPDX-FileCopyrightText: 2026 Polaris Contributors
+// SPDX-License-Identifier: GPL-3.0-only
+
+package com.slte.app.kernel
+
+internal enum class KeyState {
+    MISSING,
+    EMPTY,
+    PRESENT,
+}
+
+internal object SanitizerRules {
+
+    const val HEALTH_CHECK_URL = "https://www.gstatic.com/generate_204"
+
+    const val HEALTH_CHECK_TIMEOUT_MS = 5_000
+
+    const val MAX_DOMAIN_LENGTH = 253
+
+    const val MAX_DOMAIN_LABEL_LENGTH = 63
+
+    const val LOG_TAG = "Polaris-Sanitizer"
+
+    const val BOM = '\uFEFF'
+
+    val HEALTH_CHECK_GROUP_TYPES = setOf("url-test", "fallback", "load-balance")
+
+    val ZEROED_PORT_KEYS = setOf("port", "socks-port", "mixed-port", "redir-port", "tproxy-port")
+
+    val NEUTRALIZED_SCALAR_KEYS =
+        setOf(
+            "external-controller",
+            "external-controller-tls",
+            "external-controller-unix",
+            "external-controller-pipe",
+            "external-ui",
+            "external-ui-name",
+            "external-ui-url",
+            "secret",
+        )
+
+    /**
+     * 整块丢弃的顶层键。
+     *
+     * `geox-url`：订阅可以指定 GeoIP/GeoSite 规则库的下载源，属于供应链投毒面。内核侧另有
+     * `patchGeoXUrl` 兜底回官方地址，所以这里整块丢更干净——放进下面的中性化集合只能把标量
+     * 置空，遇到嵌套写法（锚点/多行块）会整条漏过清洗层。
+     *
+     * `ntp`：订阅可以指定时间服务器做时间源劫持，且内核侧没有对应兜底，只能靠这里丢。
+     *
+     * `global-client-fingerprint`：mihomo 已移除该顶层键（内核打 error 级日志后忽略它），
+     * 面板却还在下发，留着只会每次加载配置都刷一条 error。
+     */
+    val DROPPED_TOP_LEVEL_KEYS =
+        setOf("hosts", "script", "scripting", "web", "listeners", "geox-url", "ntp", "<<", "global-client-fingerprint")
+
+    val FORCED_OFF_TOP_LEVEL_KEYS = setOf("tun")
+
+    val ZEROED_SWITCH_KEYS = setOf("allow-lan", "bind-address")
+
+    val REWRITTEN_TOP_LEVEL_KEYS = ZEROED_PORT_KEYS + ZEROED_SWITCH_KEYS
+
+    const val RULES_KEY = "rules"
+
+    const val DNS_KEY = "dns"
+
+    val PLAIN_KEY = Regex("^[A-Za-z0-9_-]+$")
+
+    val SUBSCRIBE_ENTRY_KEY = Regex(
+        "^['\"]?(proxies|proxy-providers)['\"]?\\s*:\\s*(?:$|#|\\[|\\{|&|!|~|null(?:\\s|$|#))",
+    )
+
+    val TOP_LEVEL_BLOCK_HEAD = Regex("^['\"]?(?:<<|[A-Za-z0-9_-]+)['\"]?\\s*:\\s*(?:&\\S+)?\\s*$")
+
+    val TOP_LEVEL_FLOW_HEAD = Regex("^['\"]?(?:<<|[A-Za-z0-9_-]+)['\"]?\\s*:\\s*(?:&\\S+\\s*)?\\{")
+
+    val TOP_LEVEL_KEY_VALUE =
+        Regex("^['\"]?(${REWRITTEN_TOP_LEVEL_KEYS.joinToString("|")})['\"]?\\s*:\\s*.*$")
+
+    val SUBTITLE_PATTERN_LINE = Regex("^(\\s*ui-subtitle-pattern\\s*:\\s*).*$")
+
+    val GROUP_ITEM_START = Regex("^\\s*-\\s*name\\s*:")
+
+    val PROVIDER_KEY = Regex("^[A-Za-z0-9_-]+\\s*:\\s*$")
+
+    val BLOCK_KEY = Regex("^(\\s*)([A-Za-z0-9_-]+)\\s*:")
+
+    val ENABLE_KEY = Regex("^['\"]?enable['\"]?\\s*:")
+
+    val FAKE_IP_FILTER_LINE = Regex("^fake-ip-filter\\s*:\\s*$")
+
+    val INLINE_FAKE_IP_FILTER = Regex("^fake-ip-filter\\s*:\\s*\\S")
+
+    val LIST_ITEM = Regex("^-\\s*")
+
+    val KEY_SMUGGLING = Regex("[\\\\&*]")
+}

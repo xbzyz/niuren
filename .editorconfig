@@ -1,0 +1,61 @@
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+indent_style = space
+indent_size = 4
+trim_trailing_whitespace = true
+
+[*.{kt,kts}]
+indent_size = 4
+ktlint_code_style = android_studio
+ij_kotlin_allow_trailing_comma = true
+ij_kotlin_allow_trailing_comma_on_call_site = true
+# —— 以下为显式豁免的标准规则，逐条写明理由；新增豁免必须同样给理由 ——
+# 内核模块派生自上游 CMFA，沿用其通配导入写法；逐条展开只会放大与上游的 diff
+ktlint_standard_no_wildcard_imports = disabled
+# 单行表达式优先于折行：android_studio 默认 100 列会命中 400+ 行，折行后反而更难读
+ktlint_standard_max-line-length = disabled
+# 测试方法用反引号中文名（数百处），是项目有意的可读性选择
+ktlint_standard_function-naming = disabled
+# 令牌命名空间是嵌套小写 object，调用点读作路径（Dimens.gap.sm / Dimens.size.button）；
+# 改成 PascalCase（Dimens.Gap.sm）会让每个调用点都变吵，收益不抵成本
+ktlint_standard_class-naming = disabled
+# 设计令牌用「值即名」写法（V5Spacing.dp14 / V5Type.sp12_5 等，含下划线），
+# 与设计规格一一对应，评审时可直接核对取值；改成语义化前缀反而丢失这层对应关系
+ktlint_standard_property-naming = disabled
+# 令牌/图标类文件按"归类"命名并承载多个同类符号（V5Tokens.kt 含 V5Spacing/V5Radius/V5Type，
+# Shape.kt、Type.kt 同理），无单一主类型
+ktlint_standard_filename = disabled
+
+[*.{yml,yaml,json,md}]
+indent_size = 2
+
+[*.xml]
+indent_size = 4
+
+[*.{toml,properties,conf,pro}]
+indent_size = 2
+
+[*.go]
+indent_style = tab
+
+[*.{c,h,s}]
+indent_size = 4
+
+[*.sh]
+indent_style = tab
+
+# ---- Windows 便携版（Electron）：electron/ 与 src/js/ 全用 2 空格 ----
+[*.js]
+indent_size = 2
+
+# ---- Windows 前端模板与样式：src/ 下 2 空格 ----
+[*.{html,css}]
+indent_size = 2
+
+# ---- Windows 打包脚本：scripts/build-portable.ps1 按项目统一风格用 2 ----
+[*.ps1]
+indent_size = 2

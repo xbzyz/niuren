@@ -1,0 +1,224 @@
+// SPDX-FileCopyrightText: 2026 Polaris Contributors
+// SPDX-License-Identifier: GPL-3.0-only
+
+package com.slte.app.ui.screen.invite
+
+import androidx.annotation.StringRes
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import com.slte.app.R
+import com.slte.app.data.remote.ApiException
+import com.slte.app.data.repository.InviteRepository
+import com.slte.app.domain.model.CommissionRecord
+import com.slte.app.domain.model.InviteCodeInfo
+import com.slte.app.domain.model.InviteInfo
+import com.slte.app.domain.model.InviteStat
+import dagger.hilt.android.lifecycle.HiltViewModel
+import javax.inject.Inject
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
+
+sealed interface WithdrawMethodsState {
+    object Loading : WithdrawMethodsState
+
+    object Failed : WithdrawMethodsState
+
+    data class Ready(val methods: List<String>) : WithdrawMethodsState
+}
+
+enum class InviteSheet { None, Transfer, Withdraw }
+
+data class InviteData(
+    val stat: InviteStat = InviteStat(),
+    val codes: List<InviteCodeInfo> = emptyList(),
+    val records: List<CommissionRecord> = emptyList(),
+    val isRefreshing: Boolean = false,
+    val isEntering: Boolean = false,
+    val isGenerating: Boolean = false,
+
+    val isSubmitting: Boolean = false,
+    @StringRes val toastRes: Int? = null,
+    val sheet: InviteSheet = InviteSheet.None,
+    val withdrawMethods: WithdrawMethodsState = WithdrawMethodsState.Loading,
+)
+
+@HiltViewModel
+class InviteViewModel
+@Inject
+constructor(
+    private val inviteRepository: InviteRepository,
+) : ViewModel() {
+    private val _data = MutableStateFlow(InviteData())
+    val data: StateFlow<InviteData> = _data.asStateFlow()
+
+    private var generateJob: Job? = null
+
+    private var loadedOnce = false
+
+    fun enterAndRefresh() {
+        loadedOnce = true
+        _data.update { it.copy(isEntering = true) }
+        refresh()
+    }
+
+    /** 进程重建恢复到本页时的兜底首拉：正常进入由 [enterAndRefresh] 负责，这里只在从未加载过时补一次。 */
+    fun ensureLoaded() {
+        if (loadedOnce) return
+        loadedOnce = true
+        enterAndRefresh()
+    }
+
+    fun refresh() {
+        _data.update { it.copy(isRefreshing = true, withdrawMethods = WithdrawMethodsState.Loading) }
+        viewModelScope.launch {
+            val inviteResult: Result<InviteInfo>
+            val recordsResult: Result<List<CommissionRecord>>
+            val methodsResult: Result<List<String>>
+            coroutineScope {
+                val inviteDeferred = async { inviteRepository.fetchInviteInfo() }
+                val recordsDeferred = async { inviteRepository.fetchCommissionRecords() }
+                val methodsDeferred = async { inviteRepository.fetchWithdrawMethods() }
+                inviteResult = inviteDeferred.await()
+                recordsResult = recordsDeferred.await()
+                methodsResult = methodsDeferred.await()
+            }
+
+            inviteResult
+                .onSuccess { info ->
+                    _data.update {
+                        it.copy(
+                            stat = info.stat,
+                            codes = info.codes,
+                            isRefreshing = false,
+                            isEntering = false,
+                        )
+                    }
+                }.onFailure {
+                    // 邀请信息加载失败必须让用户可感知：只复位 loading 会留下空白页且无任何反馈。
+                    _data.update {
+                        it.copy(isRefreshing = false, isEntering = false, toastRes = R.string.error_network)
+                    }
+                }
+
+            recordsResult.onSuccess { records ->
+                _data.update { it.copy(records = records) }
+            }
+
+            methodsResult
+                .onSuccess { methods ->
+                    _data.update { it.copy(withdrawMethods = WithdrawMethodsState.Ready(methods)) }
+                }.onFailure {
+                    _data.update { it.copy(withdrawMethods = WithdrawMethodsState.Failed) }
+                }
+        }
+    }
+
+    fun retryWithdrawMethods() {
+        if (_data.value.withdrawMethods is WithdrawMethodsState.Loading) return
+        _data.update { it.copy(withdrawMethods = WithdrawMethodsState.Loading) }
+        viewModelScope.launch {
+            inviteRepository
+                .fetchWithdrawMethods()
+                .onSuccess { methods ->
+                    _data.update { it.copy(withdrawMethods = WithdrawMethodsState.Ready(methods)) }
+                }.onFailure {
+                    _data.update { it.copy(withdrawMethods = WithdrawMethodsState.Failed) }
+                }
+        }
+    }
+
+    fun generateCode() {
+        _data.update { it.copy(isGenerating = true) }
+        generateJob?.cancel()
+        generateJob =
+            viewModelScope.launch {
+                inviteRepository
+                    .generateInviteCode()
+                    .onSuccess { success ->
+                        if (success) {
+                            refresh()
+                            _data.update { it.copy(isGenerating = false, toastRes = R.string.invite_success_generate) }
+                        } else {
+                            _data.update { it.copy(isGenerating = false, toastRes = R.string.invite_error_generate) }
+                        }
+                    }.onFailure { e ->
+
+                        val toastRes =
+                            if (e is ApiException && e.message?.contains("上限") == true) {
+                                R.string.invite_error_generate_limit
+                            } else {
+                                R.string.invite_error_generate
+                            }
+                        _data.update { it.copy(isGenerating = false, toastRes = toastRes) }
+                    }
+            }
+    }
+
+    fun cancelLoading() {
+        generateJob?.cancel()
+        _data.update { it.copy(isGenerating = false) }
+    }
+
+    fun transferCommission(yuanAmount: Double) {
+        if (_data.value.isSubmitting) return
+
+        val cents = Math.round(yuanAmount * 100)
+        if (cents <= 0) return
+        val capped = cents.coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+        _data.update { it.copy(isSubmitting = true) }
+        viewModelScope.launch {
+            inviteRepository
+                .transferCommission(capped)
+                .onSuccess { success ->
+                    if (success) {
+                        _data.update { it.copy(sheet = InviteSheet.None, toastRes = R.string.invite_success_transfer) }
+                        refresh()
+                    } else {
+                        _data.update { it.copy(toastRes = R.string.invite_error_transfer) }
+                    }
+                }.onFailure {
+                    _data.update { it.copy(toastRes = R.string.invite_error_transfer) }
+                }
+            _data.update { it.copy(isSubmitting = false) }
+        }
+    }
+
+    fun withdraw(
+        method: String,
+        account: String,
+    ) {
+        if (_data.value.isSubmitting) return
+        _data.update { it.copy(isSubmitting = true) }
+        viewModelScope.launch {
+            inviteRepository
+                .withdrawCommission(method, account)
+                .onSuccess { success ->
+                    if (success) {
+                        _data.update { it.copy(sheet = InviteSheet.None, toastRes = R.string.invite_success_withdraw) }
+                        refresh()
+                    } else {
+                        _data.update { it.copy(toastRes = R.string.invite_error_withdraw) }
+                    }
+                }.onFailure {
+                    _data.update { it.copy(toastRes = R.string.invite_error_withdraw) }
+                }
+            _data.update { it.copy(isSubmitting = false) }
+        }
+    }
+
+    fun showTransferSheet() = _data.update { it.copy(sheet = InviteSheet.Transfer) }
+
+    fun showWithdrawSheet() = _data.update { it.copy(sheet = InviteSheet.Withdraw) }
+
+    fun hideTransferSheet() = _data.update { it.copy(sheet = InviteSheet.None) }
+
+    fun hideWithdrawSheet() = _data.update { it.copy(sheet = InviteSheet.None) }
+
+    fun clearToast() = _data.update { it.copy(toastRes = null) }
+}

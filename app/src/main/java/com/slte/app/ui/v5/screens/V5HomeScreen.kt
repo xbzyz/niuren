@@ -1,0 +1,499 @@
+// SPDX-FileCopyrightText: 2026 Polaris Contributors
+// SPDX-License-Identifier: GPL-3.0-only
+
+package com.slte.app.ui.v5.screens
+
+import android.Manifest
+import android.content.Context
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.net.Uri
+import android.os.Build
+import android.os.PowerManager
+import android.os.SystemClock
+import android.provider.Settings
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.ArrowDownward
+import androidx.compose.material.icons.outlined.ArrowUpward
+import androidx.compose.material.icons.outlined.BarChart
+import androidx.compose.material.icons.outlined.CreditCard
+import androidx.compose.material.icons.outlined.Memory
+import androidx.compose.material.icons.outlined.Public
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
+import com.slte.app.R
+import com.slte.app.ui.screen.main.DashboardData
+import com.slte.app.ui.screen.main.proxyModeLabelRes
+import com.slte.app.ui.theme.V5Spacing
+import com.slte.app.ui.theme.V5ThemeColors
+import com.slte.app.ui.theme.V5Type
+import com.slte.app.ui.v5.ButtonStyle
+import com.slte.app.ui.v5.ChipTone
+import com.slte.app.ui.v5.GradientIcon
+import com.slte.app.ui.v5.HeroConnectButton
+import com.slte.app.ui.v5.IconTone
+import com.slte.app.ui.v5.LedgerData
+import com.slte.app.ui.v5.LiveDot
+import com.slte.app.ui.v5.MacaronTile
+import com.slte.app.ui.v5.NavTab
+import com.slte.app.ui.v5.ProgressTrack
+import com.slte.app.ui.v5.SectionTitle
+import com.slte.app.ui.v5.TileTone
+import com.slte.app.ui.v5.V5Button
+import com.slte.app.ui.v5.V5Card
+import com.slte.app.ui.v5.V5CardFlat
+import com.slte.app.ui.v5.V5Chip
+import com.slte.app.ui.v5.V5Ledger
+import com.slte.app.ui.v5.V5PageScaffold
+import com.slte.app.ui.v5.V5RowItem
+import com.slte.app.ui.v5.V5ScrollBody
+import com.slte.app.ui.v5.V5Sheet
+import com.slte.app.ui.v5.V5TopBar
+import com.slte.app.ui.v5.v5Enter
+import com.slte.app.utils.FormatUtils
+
+/* ============================================================
+   v6 首页：大标题 + 白底色环连接钮 + 状态行 + 速率卡 + 会话/套餐
+   （数据接线：MainViewModel 的 DashboardData；连接/权限逻辑与 v5 一致）
+   ============================================================ */
+
+/**
+ * 速率卡。
+ *
+ * **不做任何显示动画**：每秒直接换成新读数，内核报几就显示几。
+ * 早先版本用 `animateFloatAsState` 在两次采样之间做数值插值，一秒钟内会画出几十个
+ * 中间值，看起来就像里程表/倒计时在翻数字——这正是"跳得眼睛疼"的来源，已移除。
+ *
+ * 读数稳定性改由另外两层保证，都不涉及逐帧插值：
+ * - **数值层**：`MainViewModel` 的非对称指数滑动平均压掉秒级采样的毛刺；
+ * - **排版层**：等宽字体 + 数值按自身宽度左对齐，紧跟小号单位；再由 `MacaronTile`
+ *   给值区补上与标签相同的缩进，使读数正好落在标签文字的正下方（与 Windows 端一致）。
+ *   不用右对齐——右对齐会把数值推到卡片另一侧，与标签错开一大截。
+ *
+ * **单位固定 MB/s**（与 Windows 应用同一口径，见 [FormatUtils.speedMbps]），不再做
+ * KB/MB/GB 自动进位——两端读数必须能直接对照，代价是 51 KB/s 以下显示 `0.0`。
+ * 排版用"数值大 + 单位小"：数值 [V5Type.sp26] 等宽、单位 [V5Type.sp12]。
+ * `MacaronTile` 在 360dp 屏上卡内可用宽 126dp，数值最长 5 个字符（`1024`）
+ * → 5 × 26 × 0.6 ≈ 78dp，加单位约 26dp，仍有余量。
+ */
+@Composable
+private fun SpeedTile(
+    tone: TileTone,
+    label: String,
+    bps: Long,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    active: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    val c = V5ThemeColors.current
+    MacaronTile(tone, label, modifier, icon = icon, live = active) {
+        if (!active) {
+            // 未连接时不显示 "0.0 MB/s"：容易被读成"已连接但没流量"，用 "--" 明确表达"暂无速率"。
+            Text(
+                "--",
+                fontSize = V5Type.sp26,
+                fontWeight = FontWeight.Bold,
+                color = c.text3,
+            )
+        } else {
+            Row(verticalAlignment = Alignment.Bottom) {
+                Text(
+                    // 数值不带量纲（FormatUtils.speedMbps），单位由右边的小号文本补全。
+                    text = FormatUtils.speedMbps(bps),
+                    fontSize = V5Type.sp26,
+                    fontWeight = FontWeight.Bold,
+                    // 等宽字体：数字等宽，位数变化不产生横向位移（与 V5Type.value 同一字体族）。
+                    // 无需 fontFeatureSettings = "tnum"：那是 TextStyle 的字段，且等宽字体下数字本来就等宽。
+                    fontFamily = FontFamily.Monospace,
+                    maxLines = 1,
+                    softWrap = false,
+                    color = c.text,
+                    // 靠 weight 把「数值 + 单位」这一整组顶到卡片内容区左边缘，和上面的标签对齐。
+                    //
+                    // 这里踩过一次坑：早先给数值加 textAlign = End 想让末位数字与单位钉在同一像素，
+                    // 结果数值被推到卡片最右侧，而标签「↓ 下行速率」在最左、中间的「--」也在最左——
+                    // 同一个位置在三种状态下出现在三个地方，一眼看过去就是「数字位置不合理」。
+                    //
+                    // fill = false 是关键：数值按自身内容宽度占位（不把单位挤到卡片右边缘），
+                    // 但上限仍是可用宽度，所以大字号/大字体缩放下不会被裁掉——不能退回固定槽宽，
+                    // 固定槽宽一旦小于实际字宽就会切掉数字。
+                    modifier = Modifier.weight(1f, fill = false),
+                )
+                Text(
+                    text = "MB/s",
+                    fontSize = V5Type.sp12,
+                    fontWeight = FontWeight.SemiBold,
+                    color = c.text2,
+                    modifier = Modifier.padding(start = V5Spacing.dp2),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun PlanUsageCard(
+    data: DashboardData,
+    onRenew: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val c = V5ThemeColors.current
+    val fraction =
+        if (data.totalBytes > 0L) (data.usedBytes.toFloat() / data.totalBytes).coerceIn(0f, 1f) else 0f
+    val daysLeftLabel =
+        if (data.isValid && data.daysUntilExpired > 0) {
+            stringResource(R.string.v5_days_left, data.daysUntilExpired)
+        } else {
+            ""
+        }
+    val expiredLabel =
+        if (data.expiredAt > 0L) {
+            stringResource(R.string.usage_expired_on, FormatUtils.formatExpiryDate(data.expiredAt))
+        } else {
+            ""
+        }
+    val expiryText = listOf(daysLeftLabel, expiredLabel).filter { it.isNotEmpty() }.joinToString(" · ")
+    // 用量逼近上限（≥90%）时把数字与进度条转成警示红，提前提醒，避免用超/被限速。
+    val nearLimit = fraction >= 0.9f
+    val usedColor = if (nearLimit) c.danger else c.accent
+    V5Card(modifier) {
+        Column(verticalArrangement = Arrangement.spacedBy(11.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(V5Spacing.dp10)) {
+                GradientIcon(IconTone.BLUE, Icons.Outlined.CreditCard, size = 34.dp)
+                Text(
+                    data.planName.ifBlank { stringResource(R.string.usage_no_plan) },
+                    fontSize = V5Type.sp16,
+                    fontWeight = FontWeight.SemiBold,
+                    color = c.text,
+                )
+                Spacer(Modifier.weight(1f))
+                V5Chip(
+                    if (data.isValid) ChipTone.OK else ChipTone.DANGER,
+                    if (data.isValid) stringResource(R.string.usage_valid) else stringResource(R.string.usage_expired),
+                )
+            }
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(V5Spacing.dp6)) {
+                Text(stringResource(R.string.usage_used), fontSize = V5Type.sp12_5, color = c.text2)
+                Text(
+                    FormatUtils.traffic(data.usedBytes),
+                    fontSize = V5Type.sp14,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = FontFamily.Monospace,
+                    color = usedColor,
+                )
+                Text(stringResource(R.string.usage_total, FormatUtils.traffic(data.totalBytes)), fontSize = V5Type.sp12_5, color = c.text3)
+                Spacer(Modifier.weight(1f))
+                Text(
+                    "${(fraction * 100).toInt()}%",
+                    fontSize = V5Type.sp12_5,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = FontFamily.Monospace,
+                    color = usedColor,
+                )
+            }
+            ProgressTrack(fraction, brush = if (nearLimit) SolidColor(c.danger) else null)
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(V5Spacing.dp8)) {
+                Text(expiryText, fontSize = V5Type.sp12_5, color = c.text3)
+                Spacer(Modifier.weight(1f))
+                V5Button(
+                    stringResource(if (data.hasPlan) R.string.plan_renew_button else R.string.plan_buy_button),
+                    ButtonStyle.TONAL,
+                    small = true,
+                    onClick = onRenew,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SessionCard(
+    data: DashboardData,
+    proxyModeLabel: String?,
+    onProxyModeClick: () -> Unit,
+) {
+    val c = V5ThemeColors.current
+    val connected = data.isConnected
+    // connectedSinceElapsedMs 是「连接时刻」时间戳（elapsedRealtime 毫秒），不是时长本身，
+    // 必须先与当前时刻相减；> 0 的判断顺带兜住异常数据，避免显示成设备开机时长。
+    val uptime =
+        if (connected && data.connectedSinceElapsedMs > 0L) {
+            FormatUtils.formatDuration(SystemClock.elapsedRealtime() - data.connectedSinceElapsedMs)
+        } else {
+            ""
+        }
+    V5CardFlat {
+        V5RowItem(
+            title = stringResource(R.string.action_proxy_mode),
+            value = proxyModeLabel,
+            chevron = true,
+            onClick = onProxyModeClick,
+        )
+        HorizontalDivider(
+            thickness = V5Spacing.dp1,
+            color = c.hairline2,
+            modifier = Modifier.padding(start = V5Spacing.dp16),
+        )
+        V5Ledger(
+            listOf(
+                LedgerData(
+                    stringResource(R.string.session_current_ip),
+                    data.currentIp.ifBlank { "--" },
+                    icon = Icons.Outlined.Public,
+                ),
+                LedgerData(
+                    stringResource(R.string.session_used),
+                    FormatUtils.traffic(data.sessionDownloadBytes + data.sessionUploadBytes),
+                    icon = Icons.Outlined.BarChart,
+                ),
+                LedgerData(
+                    stringResource(R.string.session_running),
+                    uptime.ifBlank { stringResource(R.string.session_not_running) },
+                    icon = Icons.Outlined.Memory,
+                    color = if (connected) c.text else c.text3,
+                ),
+            ),
+        )
+    }
+}
+
+@Composable
+internal fun V5HomeScreen(
+    data: DashboardData,
+    onToggleConnection: () -> Unit,
+    onVpnPermissionDenied: () -> Unit,
+    vpnRequestIntent: () -> android.content.Intent?,
+    onRenew: () -> Unit,
+    onNavSelect: (NavTab) -> Unit,
+    refreshKernelInfo: () -> Unit,
+    onProxyModeClick: () -> Unit = {},
+) {
+    val c = V5ThemeColors.current
+    val connected = data.isConnected
+    // 连接中态：点连接后到连上之间，界面必须与未连接区分（v5 曾丢失该字段导致截图无差别）。
+    val connecting = data.isConnecting
+    val context = LocalContext.current
+    val vpnPermissionLauncher =
+        rememberLauncherForActivityResult(
+            ActivityResultContracts.StartActivityForResult(),
+        ) { result ->
+            if (result.resultCode == android.app.Activity.RESULT_OK) {
+                onToggleConnection()
+            } else {
+                onVpnPermissionDenied()
+            }
+        }
+    val notificationPermissionLauncher =
+        rememberLauncherForActivityResult(
+            ActivityResultContracts.RequestPermission(),
+        ) { granted ->
+            if (!granted) {
+                android.widget.Toast
+                    .makeText(
+                        context,
+                        context.getString(R.string.notification_permission_denied),
+                        android.widget.Toast.LENGTH_SHORT,
+                    )
+                    .show()
+            }
+        }
+
+    // 电池优化白名单提示：系统（尤其国产 ROM）在后台杀掉 :background 进程会导致代理中断，
+    // 用户感知为"后台运行一段时间后自动停止"。连接前检查一次，未加白名单则弹 sheet 引导。
+    var showBatterySheet by remember { mutableStateOf(false) }
+    val batteryPrefs = remember(context) {
+        context.getSharedPreferences("polaris_battery", Context.MODE_PRIVATE)
+    }
+    fun isBatteryIgnored(): Boolean {
+        val pm = context.getSystemService(Context.POWER_SERVICE) as PowerManager
+        return pm.isIgnoringBatteryOptimizations(context.packageName)
+    }
+    fun proceedConnect() {
+        if (Build.VERSION.SDK_INT >= 33 &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) !=
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+        val request = vpnRequestIntent()
+        if (request != null) {
+            vpnPermissionLauncher.launch(request)
+        } else {
+            onToggleConnection()
+        }
+    }
+
+    // 连接中再点 = 取消连接：必须**直接**走 onToggleConnection（MainViewModel.toggleConnection
+    // 的 isConnecting 分支会停隧道并复位）。绝不能复用下面的"套餐 / 通知权限 / VPN 授权"前置
+    // （历史缺陷"连不上也关不掉"）。
+    val handleToggle = {
+        when {
+            connecting -> onToggleConnection()
+            !data.hasPlan -> {
+                android.widget.Toast
+                    .makeText(context, context.getString(R.string.dashboard_no_plan_tip), android.widget.Toast.LENGTH_SHORT)
+                    .show()
+                onRenew()
+            }
+            else -> {
+                if (!isBatteryIgnored() &&
+                    !batteryPrefs.getBoolean("battery_sheet_dismissed", false)
+                ) {
+                    showBatterySheet = true
+                } else {
+                    proceedConnect()
+                }
+            }
+        }
+        Unit
+    }
+
+    LaunchedEffect(Unit) { refreshKernelInfo() }
+
+    // 大状态行：v5 的顶栏状态胶囊移到连接钮下方（iOS 式：圆钮 + 状态 + 节点行）。
+    val statusBig = when {
+        connected -> stringResource(R.string.v5_connected_title)
+        connecting -> stringResource(R.string.v5_connecting)
+        else -> stringResource(R.string.v5_not_connected)
+    }
+    val nodeLine = when {
+        connected -> {
+            val delay = data.exitDelay
+            if (delay != null && delay > 0) "${data.serverName} · $delay ms" else data.serverName
+        }
+        connecting -> stringResource(R.string.v5_connecting_wait)
+        else -> stringResource(R.string.v5_ready_no_node)
+    }
+
+    V5PageScaffold(tab = NavTab.HOME, onNavSelect = onNavSelect) {
+        // 顶栏显示面板站点名（DashboardData.siteName，清洗与截断由 siteDisplayName 负责），
+        // 底部 tab 才有"首页"字样；v1.6.1 就是这个契约，v1.7.x 一度被写死成"首页"。
+        V5TopBar(siteDisplayName(data.siteName, stringResource(R.string.app_name)))
+        V5ScrollBody(NavTab.HOME) {
+            // —— 连接舞台：白底色环大圆钮 + 状态 + 节点行（v6 不再套卡片、不再有氛围底）。
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.v5Enter(0).fillMaxWidth().padding(top = V5Spacing.dp8),
+            ) {
+                HeroConnectButton(
+                    connected = connected,
+                    connecting = connecting,
+                    onClick = handleToggle,
+                )
+                Spacer(Modifier.height(20.dp))
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(V5Spacing.dp6)) {
+                    if (connected) {
+                        LiveDot()
+                    } else {
+                        Box(Modifier.size(7.dp).clip(CircleShape).background(c.text3))
+                    }
+                    Text(statusBig, fontSize = 20.sp, fontWeight = FontWeight.Bold, color = c.text)
+                }
+                Spacer(Modifier.height(V5Spacing.dp4))
+                Text(
+                    nodeLine,
+                    fontSize = V5Type.sp15,
+                    color = c.text3,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = V5Spacing.dp16),
+                )
+            }
+            // —— 速率卡
+            Row(horizontalArrangement = Arrangement.spacedBy(V5Spacing.dp12), modifier = Modifier.v5Enter(1)) {
+                SpeedTile(TileTone.BLUE, stringResource(R.string.v5_down_speed), data.downloadSpeedBps, Icons.Outlined.ArrowDownward, connected, Modifier.weight(1f))
+                SpeedTile(TileTone.ORANGE, stringResource(R.string.v5_up_speed), data.uploadSpeedBps, Icons.Outlined.ArrowUpward, connected, Modifier.weight(1f))
+            }
+            // —— 会话 / 套餐：iOS 分组段（代理模式并入会话卡第一行）。
+            Column(Modifier.v5Enter(2), verticalArrangement = Arrangement.spacedBy(V5Spacing.dp10)) {
+                SectionTitle(stringResource(R.string.session_title))
+                SessionCard(
+                    data,
+                    proxyModeLabel = proxyModeLabelRes(data.proxyMode)?.let { stringResource(it) },
+                    onProxyModeClick = onProxyModeClick,
+                )
+            }
+            Column(Modifier.v5Enter(3), verticalArrangement = Arrangement.spacedBy(V5Spacing.dp10)) {
+                SectionTitle(stringResource(R.string.usage_title))
+                PlanUsageCard(data, onRenew)
+            }
+        }
+    }
+
+    if (showBatterySheet) {
+        V5Sheet(
+            // 点遮罩 / 下滑关闭也必须把"连接"这件事做完，并且标记已处理，
+            // 否则用户点了「连接」却被这个提示页吞掉动作，界面回到「未连接」且毫无提示，
+            // 下次点「连接」还会再弹一次 —— 正是上面注释警告的「连不上也关不掉」同型回归。
+            onDismiss = {
+                showBatterySheet = false
+                batteryPrefs.edit().putBoolean("battery_sheet_dismissed", true).apply()
+                proceedConnect()
+            },
+            title = stringResource(R.string.battery_opt_title),
+            subtitle = stringResource(R.string.battery_opt_message),
+        ) {
+            V5Button(
+                stringResource(R.string.battery_opt_go_settings),
+                ButtonStyle.PRIMARY,
+                modifier = Modifier.fillMaxWidth(),
+                onClick = {
+                    showBatterySheet = false
+                    batteryPrefs.edit().putBoolean("battery_sheet_dismissed", true).apply()
+                    context.startActivity(
+                        Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                            // 必须写 this.data：本 composable 有个同名形参 `data`，
+                            // 裸写 `data = ...` 会解析到形参上而不是 Intent 的属性。
+                            this.data = Uri.parse("package:${context.packageName}")
+                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        },
+                    )
+                },
+            )
+            Spacer(Modifier.height(V5Spacing.dp8))
+            V5Button(
+                stringResource(R.string.battery_opt_later),
+                ButtonStyle.GHOST,
+                modifier = Modifier.fillMaxWidth(),
+                onClick = {
+                    showBatterySheet = false
+                    batteryPrefs.edit().putBoolean("battery_sheet_dismissed", true).apply()
+                    proceedConnect()
+                },
+            )
+        }
+    }
+}

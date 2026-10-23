@@ -1,0 +1,72 @@
+/* 真窗口外壳 —— 无边框窗口的拖动区、窗口按钮与滚动行为。
+ *
+ * 设计系统（design.css）只描述视觉；这里描述「真窗口」才需要的东西：
+ *  · 顶部 42px 是拖动区（与 Murge 一致，窗口控件浮在右上角）；
+ *  · 拖动区里不能放可交互元素，否则点不动 —— 用 -webkit-app-region: no-drag 例外；
+ *  · 内容区自己滚动，body 不滚（避免双滚动条与整窗抖动）。 */
+
+html, body { height: 100%; overflow: hidden; }
+
+.app-window { position: relative; }
+
+/* ---- 拖动：无边框窗口必须显式声明可拖区域 ---- */
+.window-drag-region,
+.app-sidebar,
+.page-head { -webkit-app-region: no-drag; }
+
+.win-btns,
+.win-btn,
+.nav-link,
+.btn,
+.switch,
+.row,
+.field,
+.search,
+.power-btn { -webkit-app-region: no-drag; }
+
+/* 顶栏（拖动区）覆盖在内容之上，但不能挡住右上角窗口按钮的点击 */
+.window-drag-region { pointer-events: auto; }
+
+/* ---- 内容区滚动 ---- */
+.app-content { overflow-y: auto; overflow-x: hidden; }
+
+/* ---- 弹窗遮罩铺满整窗 ---- */
+.overlay { border-radius: 0; }
+
+/* ---- 可点击元素给出手型光标（无障碍与可发现性）---- */
+.nav-link,
+.nav-item,
+.btn,
+.row[data-click],
+.node-row,
+.opt,
+.acc-head,
+[data-acc],
+[data-nav-back],
+[data-nav],
+[data-click],
+[data-group],
+[data-ticket],
+[data-notice],
+[data-mode],
+[data-pick],
+[data-pay-method],
+[data-pick-value],
+[data-tk-level],
+[data-cr-out],
+.auth-links span { cursor: pointer; }
+
+/* ---- 长文本换行（节点名、订阅地址、工单正文）---- */
+.code-box,
+.md,
+.dialog p { overflow-wrap: anywhere; }
+
+/* ---- 无障碍：可见焦点 ---- */
+.nav-link:focus-visible,
+.btn:focus-visible,
+.acc-head:focus-visible,
+.node-row:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: -2px;
+  border-radius: var(--radius-md);
+}

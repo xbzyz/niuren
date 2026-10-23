@@ -1,0 +1,260 @@
+// SPDX-FileCopyrightText: 2026 Polaris Contributors
+// SPDX-License-Identifier: GPL-3.0-only
+
+package com.slte.app.ui.screen.settings
+
+import com.slte.app.R
+import com.slte.app.kernel.KernelConfig
+import com.slte.app.kernel.RoutingCustomGroup
+import com.slte.app.kernel.RoutingGroups
+import com.slte.app.kernel.RoutingState
+import com.slte.app.kernel.RoutingStateStore
+import com.slte.app.support.MainDispatcherRule
+import io.mockk.coEvery
+import io.mockk.coVerify
+import io.mockk.every
+import io.mockk.mockk
+import io.mockk.slot
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.runTest
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
+import org.junit.Rule
+import org.junit.Test
+
+class RoutingRulesViewModelTest {
+    @get:Rule
+    val mainRule = MainDispatcherRule()
+
+    private val routingStateStore = mockk<RoutingStateStore>(relaxed = true)
+    private val kernelConfig = mockk<KernelConfig>(relaxed = true)
+
+    private fun stubState(
+        state: RoutingState,
+        hiddenCustom: List<RoutingCustomGroup> = emptyList(),
+        hiddenDomains: List<String> = emptyList(),
+    ) {
+        every { routingStateStore.load() } returns state
+        every { routingStateStore.loadSanitized() } returns
+            RoutingStateStore.SanitizedRoutingState(state, hiddenCustom = hiddenCustom, hiddenDomains = hiddenDomains)
+    }
+
+    private fun viewModel(state: RoutingState = RoutingState()): RoutingRulesViewModel {
+        stubState(state)
+        return RoutingRulesViewModel(routingStateStore, kernelConfig)
+    }
+
+    @Test
+    fun `列表生效开关优先取覆盖值否则取内置默认`() = runTest(mainRule.dispatcher) {
+        val vm =
+            viewModel(
+                RoutingState(groups = mapOf("📲 电报消息" to true, "🍎 苹果服务" to false)),
+            )
+
+        val items = vm.data.value.items
+        assertTrue(items.isNotEmpty())
+        assertEquals(true, items.first { it.name == "📲 电报消息" }.enabled) // 覆盖值优先
+        assertEquals(false, items.first { it.name == "🍎 苹果服务" }.enabled) // 覆盖值优先
+        assertEquals(true, items.first { it.name == "🌏 国外穿墙" }.enabled) // 默认开
+        assertEquals(false, items.first { it.name == "🍃 应用净化" }.enabled) // 默认关
+    }
+
+    @Test
+    fun `被隐藏的条目每次读都带进 data 供 UI 列出`() {
+        val hidden = listOf(RoutingCustomGroup(name = "Ⓜ️ 微软云盘", url = "https://x.example.com/a.yaml"))
+        stubState(RoutingState(), hiddenCustom = hidden, hiddenDomains = listOf("bad domain"))
+
+        val vm = RoutingRulesViewModel(routingStateStore, kernelConfig)
+
+        // 不能只报「本次读丢了几个」：条目本身要带出来，用户才知道少了什么
+        assertEquals(listOf("Ⓜ️ 微软云盘"), vm.data.value.hiddenCustomNames)
+        assertEquals(listOf("bad domain"), vm.data.value.hiddenDomainNames)
+        assertEquals(R.string.routing_custom_cleaned_invalid, vm.data.value.errorMessageRes)
+    }
+
+    @Test
+    fun `开关成功后回到 Idle 并计数`() = runTest(mainRule.dispatcher) {
+        coEvery { kernelConfig.applyRoutingGroup("📲 电报消息", true) } returns true
+        val vm = viewModel()
+
+        vm.setEnabled("📲 电报消息", true)
+        advanceUntilIdle()
+
+        assertEquals(RoutingSync.Idle, vm.data.value.sync)
+        assertEquals(1, vm.data.value.savedCount)
+        assertTrue(vm.data.value.items.first { it.name == "📲 电报消息" }.enabled)
+        coVerify(exactly = 1) { kernelConfig.applyRoutingGroup("📲 电报消息", true) }
+    }
+
+    @Test
+    fun `开关失败回滚到该组内置默认并提示`() = runTest(mainRule.dispatcher) {
+        coEvery { kernelConfig.applyRoutingGroup("🍃 应用净化", true) } returns false
+        val vm = viewModel()
+
+        vm.setEnabled("🍃 应用净化", true)
+        advanceUntilIdle()
+
+        // 应用净化内置默认为关：写盘失败回滚为关
+        assertTrue(!vm.data.value.items.first { it.name == "🍃 应用净化" }.enabled)
+        assertEquals(RoutingSync.Idle, vm.data.value.sync)
+        assertEquals(R.string.settings_local_routing_failed, vm.data.value.errorMessageRes)
+    }
+
+    @Test
+    fun `恢复默认清空覆盖并回读默认值`() = runTest(mainRule.dispatcher) {
+        coEvery { kernelConfig.resetRoutingGroups() } returns true
+        stubState(RoutingState(groups = mapOf("📲 电报消息" to true)))
+
+        val vm = viewModel()
+        vm.resetDefaults()
+        advanceUntilIdle()
+
+        assertTrue(!vm.data.value.items.first { it.name == "🍃 应用净化" }.enabled)
+        assertTrue(vm.data.value.items.first { it.name == "🌏 国外穿墙" }.enabled)
+        coVerify(exactly = 1) { kernelConfig.resetRoutingGroups() }
+    }
+
+    @Test
+    fun `自定义组名校验拦截空名与内置组冲突`() = runTest(mainRule.dispatcher) {
+        val vm = viewModel()
+
+        vm.showAddCustomGroup()
+        vm.onCustomNameChange("")
+        vm.onCustomUrlChange("https://example.com/rules.yaml")
+        vm.submitCustomGroup()
+        assertEquals(R.string.routing_custom_invalid_name, editingError(vm))
+
+        vm.onCustomNameChange("🐟 漏网之鱼")
+        vm.submitCustomGroup()
+        assertEquals(R.string.routing_custom_invalid_name, editingError(vm))
+
+        vm.onCustomNameChange("ok-name")
+        vm.onCustomUrlChange("http://example.com/rules.yaml")
+        vm.submitCustomGroup()
+        assertEquals(R.string.routing_custom_invalid_url, editingError(vm))
+
+        vm.onCustomUrlChange("https://192.168.1.1/rules.yaml")
+        vm.submitCustomGroup()
+        assertEquals(R.string.routing_custom_invalid_url, editingError(vm))
+
+        coVerify(exactly = 0) { kernelConfig.addRoutingCustomGroup(any()) }
+    }
+
+    @Test
+    fun `自定义组提交成功后关闭弹层并刷新列表`() = runTest(mainRule.dispatcher) {
+        val group = RoutingCustomGroup(name = "我的规则", url = "https://example.com/rules.yaml", behavior = "domain")
+        coEvery { kernelConfig.addRoutingCustomGroup(any()) } returns true
+        // 提交成功后 refresh() 会重读 load()，返回带自定义组的状态
+        val vm = viewModel(state = RoutingState(custom = listOf(group)))
+        vm.showAddCustomGroup()
+        vm.onCustomNameChange("我的规则")
+        vm.onCustomUrlChange("https://example.com/rules.yaml")
+        vm.onCustomBehaviorChange("domain")
+        vm.submitCustomGroup()
+        advanceUntilIdle()
+
+        assertTrue(vm.customGroupState.value is CustomGroupState.Closed)
+        assertEquals(1, vm.data.value.custom.size)
+        coVerify(exactly = 1) { kernelConfig.addRoutingCustomGroup(group) }
+    }
+
+    @Test
+    fun `同名自定义组存储层拒绝后提示重复`() = runTest(mainRule.dispatcher) {
+        coEvery { kernelConfig.addRoutingCustomGroup(any()) } returns false
+        val vm = viewModel()
+
+        vm.showAddCustomGroup()
+        vm.onCustomNameChange("重复组")
+        vm.onCustomUrlChange("https://example.com/rules.yaml")
+        vm.submitCustomGroup()
+        advanceUntilIdle()
+
+        val state = vm.customGroupState.value as CustomGroupState.Editing
+        assertEquals(R.string.routing_custom_duplicate_name, state.errorMessageRes)
+    }
+
+    @Test
+    fun `删除自定义组走内核通道`() = runTest(mainRule.dispatcher) {
+        coEvery { kernelConfig.removeRoutingCustomGroup("x") } returns true
+        val vm = viewModel()
+
+        vm.removeCustomGroup("x")
+        advanceUntilIdle()
+
+        coVerify(exactly = 1) { kernelConfig.removeRoutingCustomGroup("x") }
+    }
+
+    @Test
+    fun `删除自定义组写盘期间重复点击被 Saving 门挡住`() = runTest(mainRule.dispatcher) {
+        val entered = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Boolean>()
+        coEvery { kernelConfig.removeRoutingCustomGroup("x") } coAnswers {
+            entered.complete(Unit)
+            release.await()
+        }
+        val vm = viewModel()
+
+        vm.removeCustomGroup("x")
+        advanceUntilIdle() // 第一次已进入内核通道并挂在这里
+        assertTrue("第一次删除应真的走到内核通道", entered.isCompleted)
+
+        // D5：写盘期间重复点击必须被挡（此前没有这道门，两次写各自拿旧快照，
+        // 后写覆盖先写 = 丢更新）。
+        vm.removeCustomGroup("x")
+        assertEquals(RoutingSync.Saving, vm.data.value.sync)
+
+        release.complete(true)
+        advanceUntilIdle()
+
+        coVerify(exactly = 1) { kernelConfig.removeRoutingCustomGroup("x") }
+        assertEquals(RoutingSync.Idle, vm.data.value.sync)
+        assertEquals(1, vm.data.value.savedCount)
+    }
+
+    @Test
+    fun `列表顺序按 order 覆盖内置默认顺序`() = runTest(mainRule.dispatcher) {
+        val vm =
+            viewModel(
+                RoutingState(order = listOf("🌏 国外穿墙", "🛑 广告拦截")),
+            )
+
+        val names = vm.data.value.items.map { it.name }
+        assertEquals(RoutingGroups.size, names.size) // 重排不得丢组
+        assertEquals("🌏 国外穿墙", names[0])
+        assertEquals("🛑 广告拦截", names[1])
+        assertEquals("📲 电报消息", names[2]) // 未指定的组按内置默认顺序追加在后
+    }
+
+    @Test
+    fun `拖动排序成功后落盘并计数`() = runTest(mainRule.dispatcher) {
+        val orderSlot = slot<List<String>>()
+        coEvery { kernelConfig.applyRoutingOrder(capture(orderSlot)) } returns true
+        val vm = viewModel()
+        val before = vm.data.value.items.map { it.name }
+
+        vm.moveGroup(0, 2)
+        advanceUntilIdle()
+
+        assertEquals(RoutingSync.Idle, vm.data.value.sync)
+        assertEquals(1, vm.data.value.savedCount)
+        assertEquals(before[0], vm.data.value.items[2].name)
+        assertEquals(listOf(before[1], before[2], before[0]) + before.drop(3), orderSlot.captured)
+    }
+
+    @Test
+    fun `拖动排序失败回滚顺序并提示`() = runTest(mainRule.dispatcher) {
+        coEvery { kernelConfig.applyRoutingOrder(any()) } returns false
+        val vm = viewModel()
+        val before = vm.data.value.items.map { it.name }
+
+        vm.moveGroup(0, 2)
+        advanceUntilIdle()
+
+        assertEquals(before, vm.data.value.items.map { it.name })
+        assertEquals(RoutingSync.Idle, vm.data.value.sync)
+        assertEquals(R.string.settings_local_routing_failed, vm.data.value.errorMessageRes)
+    }
+
+    private fun editingError(vm: RoutingRulesViewModel): Int? = (vm.customGroupState.value as? CustomGroupState.Editing)?.errorMessageRes
+}

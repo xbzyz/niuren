@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    几何字母 P 单色层（Android 13+ 主题图标）：系统按主题着色，所以只留形状。
+    几何与前景层 ic_launcher_foreground.xml 完全一致，只是换成纯黑。
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#000000"
+        android:pathData="M41,29 A6,6 0 0 1 47,35 V73 A6,6 0 0 1 41,79 A6,6 0 0 1 35,73 V35 A6,6 0 0 1 41,29 Z" />
+    <path
+        android:fillColor="#000000"
+        android:fillType="evenOdd"
+        android:pathData="M56,29 A17,17 0 1 0 56,63 A17,17 0 1 0 56,29 Z M56,37 A9,9 0 1 1 56,55 A9,9 0 1 1 56,37 Z" />
+</vector>
