@@ -15,8 +15,18 @@
 
 ## 简介
 
-niuren 是一款基于 [mihomo](https://github.com/MetaCubeX/mihomo/tree/Alpha) 内核的代理客户端，支持 XiaoV2b / Xboard 面板，登录时自动识别，无需换包。Android 为主客户端；另附 **Windows 便携版**（源码在 `design/windows/app/`，免安装、解压即用、共用同一套面板账号与分流方案）。
+niuren 是一款基于 [mihomo](https://github.com/MetaCubeX/mihomo/tree/Alpha) 内核的代理客户端，支持 XiaoV2b / Xboard 面板，登录时自动识别，无需换包。**Android 为主客户端**；另附 **Windows 与 macOS 桌面客户端**（源码同处 `design/windows/app/`，Electron 工程：Windows 提供便携版与安装版、macOS 提供 PKG 安装版与 ZIP 便携版，三者共用同一套面板账号与分流方案）。
 
+
+## 功能特性
+
+- **多面板兼容**：支持 XiaoV2b / Xboard 等机场面板，登录时自动探测后端类型，无需为不同面板换包。
+- **节点选择与时延测速**：首页即可选节点并实时显示延迟（含 TUN / 系统代理切换），支持自动选择、故障转移等策略组手动选节点。
+- **分流规则集**：内置 47 个分流规则集与地理库（geoip / geosite / ASN），运行期可从仓库同步更新（见 `config/remote.json`）。
+- **应用内更新**：「我的 → 关于软件 → 检查更新」直接下载并覆盖安装新版本，数据保留；也可从 Releases 手动下载覆盖。
+- **多平台一致体验**：Android（主客户端）+ Windows + macOS 桌面端，共用同一套面板账号与分流方案。
+- **隐私优先**：包内不含任何面板地址与账号，首次启动在登录页填写你自己的面板网址。
+- **TUN 模式**：可选接管系统流量（Windows / macOS 需相应权限）。
 
 ## 下载与安装
 
@@ -41,6 +51,17 @@ niuren 是一款基于 [mihomo](https://github.com/MetaCubeX/mihomo/tree/Alpha) 
 > 升级时**不要**把新包覆盖解压进旧目录：解压到新文件夹，再把旧的 `data/` 拷过去（订阅、登录态、设置都在里面）。
 
 > 包内**不含任何面板地址与账号**，首次启动在登录页填自己的面板网址。源码与开发/打包细节见 `design/windows/app/README.md`。
+
+### macOS
+
+1. 从同一个 [Releases](https://github.com/xbzyz/niuren/releases) 下载 `niuren-mac-<版本号>.pkg`（安装版，Apple Silicon）或 `niuren-mac-<版本号>.zip`（便携版）。
+2. **校验完整性**：比对下载页 `SHA256SUMS.txt` 里的摘要（`sha256sum niuren-mac-<版本>.pkg`）。
+3. **安装版**：双击 `niuren-mac-<版本>.pkg` 按向导装到 `/Applications`；**便携版**：解压后把 `niuren.app` 拖到「应用程序」或任意目录直接运行。
+4. 首次打开若被 Gatekeeper 拦截（当前为 **ad-hoc 签名**，无付费开发者证书），在「系统设置 → 隐私与安全性」点「仍要打开」，或在终端执行 `xattr -cr /Applications/niuren.app` 后重试。
+5. 目录结构（便携版）：`niuren.app/Contents/MacOS/niuren` + `Resources/core/`（mihomo 内核）+ `Resources/geo/`、`Resources/rules/`（地理库与分流规则集），配置/日志落在用户目录。
+6. TUN 模式需要管理员权限；仅用系统代理时不需要。
+
+> 当前 macOS 包为 **Apple Silicon（arm64）** 构建，使用 ad-hoc 签名，首次打开需手动放行（见第 4 步）。
 
 ## 上游仓库
 
@@ -129,6 +150,26 @@ npm start         # 运行（真实模式：需要已登录面板，没有离线
 ```
 
 > Windows 端的版本号唯一来源是 `design/windows/app/package.json` 的 `version`，发布时必须与 Android 的 `versionName` 一致（同一个 Release、同一个 tag）。
+
+### macOS 客户端
+
+桌面三端共用同一份 Electron 源码 `design/windows/app/`；macOS 打包在此基础上换用 darwin 版内核与辅助脚本（`build-env/mihomo-darwin`、`build-env/darwin-*.js`），产出 `niuren.app` 后再做 ad-hoc 签名、zip 与 pkg。
+
+```bash
+# 1) 准备 Electron 工程（与 Windows 端相同）
+cd design/windows/app
+npm install
+npm run geo        # 规则/地理库到 resources/（内核单独用 darwin 二进制）
+
+# 2) 组装 niuren.app：取 node_modules/electron 的 Electron.app，
+#    改名 niuren、注入 Info.plist（CFBundleExecutable/Name/DisplayName=niuren，
+#    CFBundleIdentifier=app.niuren.mac），拷入 electron/src 代码 + core(mihomo) + geo/rules
+# 3) 签名 + 打包（本仓库用本地辅助脚本 build-env/pack_mac.py 完成以上步骤）：
+python3 build-env/pack_mac.py
+#    产物：out-windows/niuren-mac-<version>.zip 与 niuren-mac-<version>.pkg
+```
+
+> macOS 包为 **Apple Silicon（arm64）**，使用 **ad-hoc 签名**（`codesign --sign -`），无开发者证书；Gatekeeper 会拦截，需用户手动放行（见[安装](#macos)）。要消除拦截需替换为正式签名并在 `Info.plist` 配置权限描述。
 
 ## 配置
 
