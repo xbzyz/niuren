@@ -22,7 +22,7 @@ Polaris 是一款基于 [mihomo](https://github.com/MetaCubeX/mihomo/tree/Alpha)
 
 ### Android
 
-1. 从 [Releases](https://github.com/xbzyz/niuren/releases) 下载 `Polaris-<版本号>.apk`（arm64-v8a）。
+1. 从 [Releases](https://github.com/xbzyz/niuren/releases) 下载 `niuren-<版本号>.apk`（arm64-v8a）。
 2. **校验完整性**：比对下载页的 `SHA256SUMS.txt`（Windows `certutil -hashfile <APK> SHA256`，Linux/macOS `sha256sum <APK>`），不一致请勿安装。
 3. 允许「安装未知应用」后安装（需 Android 8.0 / API 28+）。
 4. 首次启动在登录页填写**你自己的面板网址**。
@@ -31,10 +31,10 @@ Polaris 是一款基于 [mihomo](https://github.com/MetaCubeX/mihomo/tree/Alpha)
 
 ### Windows
 
-1. 从同一个 [Releases](https://github.com/xbzyz/niuren/releases) 下载 `Polaris-portable-<版本号>.zip`（Windows 10/11 x64）。
-2. **校验完整性**：比对下载页 `SHA256SUMS.txt` 里的摘要（`certutil -hashfile Polaris-portable-<版本号>.zip SHA256`），不一致请勿使用。
-3. **解压到任意目录**（推荐非系统盘、路径不含空格），双击 `Polaris.exe` 即可，无需安装、无需管理员权限。
-4. 目录结构：`Polaris.exe` + `core/`（mihomo 内核 + wintun）+ `resources/geo/`、`resources/rules/`（内置地理库与 47 个分流规则集）+ `data/`（配置、订阅、日志，首次运行自动创建）。
+1. 从同一个 [Releases](https://github.com/xbzyz/niuren/releases) 下载 `niuren-portable-<版本号>.zip`（Windows 10/11 x64）。
+2. **校验完整性**：比对下载页 `SHA256SUMS.txt` 里的摘要（`certutil -hashfile niuren-portable-<版本号>.zip SHA256`），不一致请勿使用。
+3. **解压到任意目录**（推荐非系统盘、路径不含空格），双击 `niuren.exe` 即可，无需安装、无需管理员权限。
+4. 目录结构：`niuren.exe` + `core/`（mihomo 内核 + wintun）+ `resources/geo/`、`resources/rules/`（内置地理库与 47 个分流规则集）+ `data/`（配置、订阅、日志，首次运行自动创建）。
 5. TUN 模式需要管理员权限（设置页里点开关会引导重启为管理员）；仅用系统代理时不需要。
 6. 卸载 = 直接删掉整个目录；`data/` 是唯一会产生写入的地方。
 
@@ -50,10 +50,12 @@ Polaris 是一款基于 [mihomo](https://github.com/MetaCubeX/mihomo/tree/Alpha)
 
 | 平台 | 版本 | Version Code |
 |------|------|-------------|
-| Android | 1.12.6 | 29871706 |
-| Windows 便携版 | 1.12.6 | — |
+| Android | 1.0.0 | 1000000 |
+| Windows 便携版 | 1.0.0 | — |
+| Windows 安装版 | 1.0.0 | — |
+| macOS（PKG 安装 / ZIP 便携） | 1.0.0 | — |
 
-> 两个平台共用同一版本号与同一个 [Release](https://github.com/xbzyz/niuren/releases/latest)（Android 为 `Polaris-<版本>.apk`，Windows 为 `Polaris-portable-<版本>.zip`）。
+> 三个平台共用同一版本号与同一个 [Release](https://github.com/xbzyz/niuren/releases/latest)（Android 为 `niuren-<版本>.apk`；Windows 为 `niuren-setup-<版本>.exe` 安装版 / `niuren-portable-<版本>.zip` 便携版；macOS 为 `niuren-mac-<版本>.pkg` 安装版 / `niuren-mac-<版本>.zip` 便携版）。
 
 > 内核：metacubex/mihomo v1.19.30（含 anytls / masque / openvpn / tailscale / zerotier 等本地 outbound 补丁）。版本以 [Releases](https://github.com/xbzyz/niuren/releases) 为准。
 
