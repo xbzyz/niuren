@@ -222,28 +222,7 @@ fun LoginScreen(
 
                 Spacer(modifier = Modifier.height(if (compact) 8.dp else 12.dp))
 
-                AuthField(
-                    label = stringResource(R.string.login_url_hint),
-                    error = panelUrlError,
-                ) {
-                    V5Input(
-                        value = form.panelUrl,
-                        onValueChange = {
-                            if (
-                                fieldErrorRes == R.string.login_url_required ||
-                                fieldErrorRes == R.string.login_url_invalid
-                            ) {
-                                fieldErrorRes = null
-                            }
-                            viewModel.onPanelUrlChange(it)
-                        },
-                        placeholder = "",
-                        icon = SlteIcons.Language,
-                        keyboardType = KeyboardType.Uri,
-                        imeAction = ImeAction.Done,
-                        enabled = !isLoading,
-                    )
-                }
+                // niuren 定制：面板地址已写死（BuildConfig.API_BASE_URL），不再展示输入框
 
                 Spacer(modifier = Modifier.height(if (compact) 14.dp else 20.dp))
                 V5Button(

@@ -104,13 +104,60 @@ internal fun OrdersPageContent(
 @Composable
 internal fun DashboardPageContent(
     mainViewModel: MainViewModel,
+    // 首页节点选择（niuren 定制）：连接舞台的节点行可点开选择面板，未连接也能选节点、测真延迟。
+    // 与节点页共享同一个实例（LoggedInViewModels.server），状态天然同步。
+    serverViewModel: ServerViewModel,
     mainData: DashboardData,
     onRenew: () -> Unit,
     onNavSelect: (com.slte.app.ui.v5.NavTab) -> Unit,
 ) {
     var showProxyMode by rememberSaveable { mutableStateOf(false) }
+    // 首页公告（niuren 定制）：跑马灯 + 最新未读弹窗，数据由 MainViewModel 统一拉取
+    val homeNotices by mainViewModel.homeNotices.collectAsStateWithLifecycle()
+    // 节点选择面板数据：进首页兜底拉一次（fetchServers 缓存优先，几乎零成本；
+    // VM init 已用缓存+延迟回填过一份，这里只为拿到最新的订阅节点名单）
+    LaunchedEffect(Unit) {
+        serverViewModel.loadNodes()
+        // 拉策略组：首页节点选择要拿真实主组名（"niuren"），否则 selectPrimaryMember
+        // 回退字面量 "🚀 节点选择" patch 不到真实组 → "选不了节点"（真实反馈根因）。
+        serverViewModel.loadProxyGroups()
+    }
+    val serverData by serverViewModel.data.collectAsStateWithLifecycle()
+    val pendingNode by serverViewModel.pendingNode.collectAsStateWithLifecycle()
+    val isTestingAll by serverViewModel.isTestingAll.collectAsStateWithLifecycle()
+    // 首页节点选择 / 测速的反馈此前被静默（节点页也从未消费这两个流）。这里用 Toast
+    // 把"选节点失败 / 测速完成 / 无套餐 / 已记住选择"等结果暴露出来，否则用户看到的就是
+    // "点了节点没反应、点了测速没动静"（真实反馈根因之二）。
+    val serverErrorRes by serverViewModel.errorMessageRes.collectAsStateWithLifecycle()
+    val serverSpeedTipRes by serverViewModel.speedTestTipRes.collectAsStateWithLifecycle()
+    val toast = rememberToast()
+    LaunchedEffect(serverErrorRes) {
+        serverErrorRes?.let {
+            toast.show(it)
+            serverViewModel.consumeServerError()
+        }
+    }
+    LaunchedEffect(serverSpeedTipRes) {
+        serverSpeedTipRes?.let {
+            toast.show(it)
+            serverViewModel.consumeSpeedTestTip()
+        }
+    }
+    // 连接态下切节点成功（selectionAppliedTick 自增）→ 延时回读出口：首页节点行
+    // 与选择面板勾选显示的是 DashboardData.serverName（info.node），只有
+    // refreshKernelInfo 才更新——不刷的话内核切到位了界面还停在上一个节点，
+    // 看起来就是"选了不生效"（真机反馈）。selectInGroup 内部已轮询回读确认，
+    // 这里的小延时只为等它返回后 kernel 侧状态稳定。
+    val selectionTick by serverViewModel.selectionAppliedTick.collectAsStateWithLifecycle()
+    LaunchedEffect(selectionTick) {
+        if (selectionTick > 0) {
+            kotlinx.coroutines.delay(600)
+            mainViewModel.refreshKernelInfo()
+        }
+    }
     V5HomeScreen(
         data = mainData,
+        notices = homeNotices,
         onToggleConnection = mainViewModel::toggleConnection,
         onVpnPermissionDenied = mainViewModel::onVpnPermissionDenied,
         vpnRequestIntent = mainViewModel::vpnRequestIntent,
@@ -118,6 +165,12 @@ internal fun DashboardPageContent(
         onNavSelect = onNavSelect,
         refreshKernelInfo = mainViewModel::refreshKernelInfo,
         onProxyModeClick = { showProxyMode = true },
+        nodes = serverData.nodes,
+        pendingNodeName = pendingNode,
+        isTestingAll = isTestingAll,
+        // 主组切换语义（同节点页主卡）：内核活着即时生效，进程没起记 pending
+        onPickNode = serverViewModel::selectPrimary,
+        onStartSpeedTest = serverViewModel::startSpeedTest,
     )
     if (showProxyMode) {
         ProxyModeSheet(
@@ -219,15 +272,14 @@ internal fun ProfilePageContent(
 internal fun ServerPageContent(
     serverViewModel: ServerViewModel,
     onUpdateSubscription: () -> Unit,
-    onRoutingRules: () -> Unit,
     onNavSelect: (com.slte.app.ui.v5.NavTab) -> Unit,
 ) {
     LaunchedEffect(Unit) {
         serverViewModel.loadNodes()
         // 策略组（含分流规则组的出口）来自运行中的内核，进入节点页即拉一次
         serverViewModel.loadProxyGroups()
-        // 每次进入节点页把分流组与主组卡全部收起：切 Tab 再回来不保留展开态
-        serverViewModel.collapseAllSections()
+        // 折叠默认全展开（niuren 定制）：不再进页全收起——旧版全收起把测速结果
+        // 藏进折叠卡里，用户表现为"点了测速看不到延迟"。
     }
     val data by serverViewModel.data.collectAsStateWithLifecycle()
     val groups by serverViewModel.proxyGroups.collectAsStateWithLifecycle()
@@ -238,11 +290,26 @@ internal fun ServerPageContent(
     val collapsedSections by serverViewModel.collapsedSections.collectAsStateWithLifecycle()
     // 显示名映射要放过用户自建组（见 groupDisplayName）；只影响标题文本
     val customGroupNames by serverViewModel.customGroupNames.collectAsStateWithLifecycle()
-    // 本地分流开关从设置页迁到节点页；用无 key 的 hiltViewModel()（与 SettingsPageContent 同款），
-    // 全仓无 NavHost → 落在同一 Activity store、按类名 key，因此两页拿到**同一实例**，
-    // 不会出现"一处拨动另一处显示旧值"的双真相。
-    val settingsViewModel: com.slte.app.ui.screen.settings.SettingsViewModel = hiltViewModel()
-    val settingsData by settingsViewModel.data.collectAsStateWithLifecycle()
+    // 未连接预选（niuren 定制）：内核进程没起时点了节点先记在 pending，勾选高亮跟随它
+    val pendingNode by serverViewModel.pendingNode.collectAsStateWithLifecycle()
+    // 节点页的一次性事件（选节点失败 / 测速提示）此前从不消费，Shared VM 里的
+    // 旧事件会一直挂着，等用户切回首页才被弹出来——与当前页面完全无关。
+    // 这里与首页同样消费：谁可见谁弹。
+    val nodesErrorRes by serverViewModel.errorMessageRes.collectAsStateWithLifecycle()
+    val nodesSpeedTipRes by serverViewModel.speedTestTipRes.collectAsStateWithLifecycle()
+    val nodesToast = rememberToast()
+    LaunchedEffect(nodesErrorRes) {
+        nodesErrorRes?.let {
+            nodesToast.show(it)
+            serverViewModel.consumeServerError()
+        }
+    }
+    LaunchedEffect(nodesSpeedTipRes) {
+        nodesSpeedTipRes?.let {
+            nodesToast.show(it)
+            serverViewModel.consumeSpeedTestTip()
+        }
+    }
     V5NodesScreen(
         data = data,
         groups = groups,
@@ -255,18 +322,20 @@ internal fun ServerPageContent(
         onSelectInGroup = serverViewModel::selectInGroup,
         onTestGroup = serverViewModel::testGroup,
         onStartSpeedTest = serverViewModel::startSpeedTest,
-        onRefreshSubscription = onUpdateSubscription,
-        onRoutingRules = onRoutingRules,
+        // 更新订阅：除首页/订阅流程外，还要让本 VM 用新缓存重填节点列表——
+        // 否则节点页点完刷新转圈，列表与分组纹丝不动（切走再切回才更新）。
+        onRefreshSubscription = {
+            onUpdateSubscription()
+            serverViewModel.refreshNodesFromCache()
+        },
         onNavSelect = onNavSelect,
         collapsedSections = collapsedSections,
         onToggleSection = serverViewModel::toggleSection,
         customGroupNames = customGroupNames,
-        localRoutingEnabled = settingsData.localRoutingEnabled,
-        localRoutingBusy = settingsData.routingSync != com.slte.app.ui.screen.settings.RemindSync.Idle,
-        onToggleLocalRouting = { settingsViewModel.setLocalRouting(!settingsData.localRoutingEnabled) },
         // 首次进入节点页自动测速一次：不这样做节点行永远停在「未测」，用户无从判断
         // "自动选择"凭什么选中某个节点（整改要求 3）。节流在 VM 内（每会话一次）。
         onAutoTestOnce = serverViewModel::autoSpeedTestOnNodesPage,
+        pendingNodeName = pendingNode,
     )
 }
 

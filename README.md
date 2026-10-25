@@ -5,7 +5,7 @@
 [![许可证](https://img.shields.io/badge/许可证-GPL--3.0-blue?style=flat-square)](LICENSE)
 [![Android](https://img.shields.io/badge/Android-28--36-green?style=flat-square)](README.md)
 [![内核](https://img.shields.io/badge/内核-mihomo-9cf?style=flat-square)](https://github.com/MetaCubeX/mihomo)
-[![CI](https://github.com/ipevel/polaris/actions/workflows/ci.yml/badge.svg)](https://github.com/ipevel/polaris/actions/workflows/ci.yml)
+[![CI](https://github.com/xbzyz/niuren/actions/workflows/ci.yml/badge.svg)](https://github.com/xbzyz/niuren/actions/workflows/ci.yml)
 
 **基于 mihomo 内核的轻量级代理客户端，支持 XiaoV2b / Xboard 面板**
 
@@ -22,7 +22,7 @@ Polaris 是一款基于 [mihomo](https://github.com/MetaCubeX/mihomo/tree/Alpha)
 
 ### Android
 
-1. 从 [Releases](https://github.com/ipevel/polaris/releases) 下载 `Polaris-<版本号>.apk`（arm64-v8a）。
+1. 从 [Releases](https://github.com/xbzyz/niuren/releases) 下载 `Polaris-<版本号>.apk`（arm64-v8a）。
 2. **校验完整性**：比对下载页的 `SHA256SUMS.txt`（Windows `certutil -hashfile <APK> SHA256`，Linux/macOS `sha256sum <APK>`），不一致请勿安装。
 3. 允许「安装未知应用」后安装（需 Android 8.0 / API 28+）。
 4. 首次启动在登录页填写**你自己的面板网址**。
@@ -31,7 +31,7 @@ Polaris 是一款基于 [mihomo](https://github.com/MetaCubeX/mihomo/tree/Alpha)
 
 ### Windows
 
-1. 从同一个 [Releases](https://github.com/ipevel/polaris/releases) 下载 `Polaris-portable-<版本号>.zip`（Windows 10/11 x64）。
+1. 从同一个 [Releases](https://github.com/xbzyz/niuren/releases) 下载 `Polaris-portable-<版本号>.zip`（Windows 10/11 x64）。
 2. **校验完整性**：比对下载页 `SHA256SUMS.txt` 里的摘要（`certutil -hashfile Polaris-portable-<版本号>.zip SHA256`），不一致请勿使用。
 3. **解压到任意目录**（推荐非系统盘、路径不含空格），双击 `Polaris.exe` 即可，无需安装、无需管理员权限。
 4. 目录结构：`Polaris.exe` + `core/`（mihomo 内核 + wintun）+ `resources/geo/`、`resources/rules/`（内置地理库与 47 个分流规则集）+ `data/`（配置、订阅、日志，首次运行自动创建）。
@@ -53,9 +53,9 @@ Polaris 是一款基于 [mihomo](https://github.com/MetaCubeX/mihomo/tree/Alpha)
 | Android | 1.12.6 | 29871706 |
 | Windows 便携版 | 1.12.6 | — |
 
-> 两个平台共用同一版本号与同一个 [Release](https://github.com/ipevel/polaris/releases/latest)（Android 为 `Polaris-<版本>.apk`，Windows 为 `Polaris-portable-<版本>.zip`）。
+> 两个平台共用同一版本号与同一个 [Release](https://github.com/xbzyz/niuren/releases/latest)（Android 为 `Polaris-<版本>.apk`，Windows 为 `Polaris-portable-<版本>.zip`）。
 
-> 内核：metacubex/mihomo v1.19.30（含 anytls / masque / openvpn / tailscale / zerotier 等本地 outbound 补丁）。版本以 [Releases](https://github.com/ipevel/polaris/releases) 为准。
+> 内核：metacubex/mihomo v1.19.30（含 anytls / masque / openvpn / tailscale / zerotier 等本地 outbound 补丁）。版本以 [Releases](https://github.com/xbzyz/niuren/releases) 为准。
 
 ## 目录结构
 
@@ -110,7 +110,7 @@ export POLARIS_RELEASE_KEY_PASSWORD=<密码>
 ./gradlew :app:assembleRelease
 ```
 
-> **推送即出包**：每次推送到 main，CI 会把调试包作为 artifact 上传（Actions → run → Artifacts，保留 7 天）。它是 **debug 签名**，无法覆盖已装的正式版；正式分发走 [Releases](https://github.com/ipevel/polaris/releases)（手动触发 `Polaris Build`）。
+> **推送即出包**：每次推送到 main，CI 会把调试包作为 artifact 上传（Actions → run → Artifacts，保留 7 天）。它是 **debug 签名**，无法覆盖已装的正式版；正式分发走 [Releases](https://github.com/xbzyz/niuren/releases)（手动触发 `Polaris Build`）。
 
 > **发版 dispatch 的 versionCode（issue #30）**：必须**显式传仓库声明值**，或**留空由 workflow 读** `app/build.gradle.kts` 的 `slteVersionCode`；两者不相等、或读不到声明值都会**直接红**。不允许 workflow 静默用「epoch 分钟」造一个和仓库不一样的 versionCode（那会让 README 的版本表与实际发布值不一致）。
 

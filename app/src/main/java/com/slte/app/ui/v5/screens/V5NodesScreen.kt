@@ -103,14 +103,16 @@ private fun nodeOrderIndex(data: ServerData): Map<String, Int> {
  * （[ServerData.nodes] 由 SubscribeRepository 解析并缓存，离线可用），把它映射成节点行，
  * 用户至少**看得见自己买了哪些节点**。
  *
- * 延迟一律给 null（显示「未测」）：离线拿不到探测结果，编造数字比留空更糟。
- * 只读是刻意的——没有内核可切，点了不会生效，所以由调用方传 readOnlyHint 关掉交互。
+ * 延迟带出 [NodeItem.delay] 的有效值（未连接 TCP 握手测速的结果就合在这里；
+ * 0 = 未测，999 = 超时）。此前写死 null，导致"点测速一秒结束但永远显示未测"、
+ * "连接过再断开，之前的延迟也不见了"——结果合进了列表却不渲染。
+ * 行仍可点（niuren 定制）：点击把选择记为 pending，连接后自动生效。
  */
 internal fun offlineMembersOf(nodes: List<NodeItem>): List<KernelProxyMember> = nodes.map {
     KernelProxyMember(
         name = it.name,
         isGroup = false,
-        delay = null,
+        delay = it.delay?.takeIf { d -> d > com.slte.app.utils.Constants.DELAY_PENDING },
         kind = KernelProxyMemberKind.NODE,
     )
 }
@@ -143,7 +145,6 @@ internal fun V5NodesScreen(
     onTestGroup: (String) -> Unit,
     onStartSpeedTest: () -> Unit,
     onRefreshSubscription: () -> Unit,
-    onRoutingRules: () -> Unit,
     onNavSelect: (NavTab) -> Unit,
     // 折叠态由 ViewModel 持有（切 Tab 会销毁本屏组合，局部状态必丢）。
     // 给默认值是为了不破坏截图测试等既有调用点。
@@ -153,14 +154,13 @@ internal fun V5NodesScreen(
     // null = 读不出来（routing.json 解析失败）→ 保守不映射；空集 = 确实没有自建组 → 照常映射。
     // 折叠键与回调一律不用它。
     customGroupNames: Set<String>? = null,
-    // 本地分流方案开关（从设置页迁来；状态与写入逻辑仍复用 SettingsViewModel）
-    localRoutingEnabled: Boolean = false,
-    localRoutingBusy: Boolean = false,
-    onToggleLocalRouting: () -> Unit = {},
     // 首次进入节点页自动跑一次测速（整改要求 3）：没有这一步，节点行永远停在「未测」，
     // 用户无法判断"自动选择"凭什么选某个节点。真正的节流在 ServerViewModel（每个 App 会话
     // 只自动跑一次）——切 Tab 会重建本屏组合，这里拦不住重复触发。
     onAutoTestOnce: () -> Unit = {},
+    // 未连接时预选的成员名（niuren 定制）：内核进程没起时点了节点先记在 pending，
+    // 勾选高亮落在它上面，连接成功后由 VM 清空、归还给内核回读的 now。null = 没有 pending。
+    pendingNodeName: String? = null,
 ) {
     val c = V5ThemeColors.current
     val primary = primaryGroupOf(groups)
@@ -216,8 +216,9 @@ internal fun V5NodesScreen(
                 modifier = Modifier.v5Enter(1),
                 name = primary?.name ?: stringResource(R.string.v5_all_nodes),
                 customGroupNames = customGroupNames,
-                nowLabel = primary?.now ?: stringResource(R.string.v5_group_unset),
-                selectedName = primary?.now,
+                nowLabel = primary?.now ?: pendingNodeName ?: stringResource(R.string.v5_group_unset),
+                // 未连接时勾选跟随 pending（点了先记住），连接后归还给内核回读的 now
+                selectedName = pendingNodeName ?: primary?.now,
                 members = members.ifEmpty { offlineMembers },
                 // 兜底名单必须可见：若沿用折叠态，它会被藏在收起状态里，用户照样"什么都看不到"
                 collapsed = if (offlineMembers.isNotEmpty()) false else PRIMARY_SECTION_KEY in collapsedSections,
@@ -270,27 +271,8 @@ internal fun V5NodesScreen(
                 }
             }
 
-            // —— 底部：分流规则管理（方块入口）+ 本地分流方案开关（按产品要求不加小字描述）
-            // 这两项原先在「设置」页，已迁到本页（设置页不再出现，避免同一设置两处入口）。
-            V5CardFlat(Modifier.fillMaxWidth().v5Enter(3)) {
-                V5RowItem(
-                    title = stringResource(R.string.settings_routing_rules),
-                    icon = SlteIcons.Route,
-                    highlight = true,
-                    chevron = true,
-                    onClick = onRoutingRules,
-                )
-                V5Divider()
-                V5RowItem(
-                    title = stringResource(R.string.settings_local_routing),
-                    switchState = localRoutingEnabled,
-                    trailing = {
-                        V5Switch(checked = localRoutingEnabled)
-                    },
-                    // 写盘期间禁用（复用 SettingsViewModel 的在途互斥，避免并发写 routing.json）
-                    onClick = if (localRoutingBusy) null else onToggleLocalRouting,
-                )
-            }
+            // —— 底部不再有任何分流入口（niuren 定制）：「分流规则管理」与「本地分流方案」
+            // 开关均已按产品要求删除；本地分流配置仅保留默认关闭的 routing.json，不再暴露 UI。
         }
     }
 }
@@ -315,8 +297,9 @@ private fun NodeGroupCard(
     isLoading: Boolean,
     onToggle: () -> Unit,
     onSelect: (String) -> Unit,
-    // 非空 = 这份名单是**只读**兜底（内核未运行，来自订阅缓存）：顶部显示说明文字，
-    // 且每行不可点（没有内核可切，点了不会有任何效果，给交互反馈就是假交互）。
+    // 非空 = 这份名单是**离线兜底**（内核进程没起，来自订阅缓存）：顶部显示说明文字。
+    // 行**仍然可点**（niuren 定制）——点击只是把选择记住（pending，连接后自动生效），
+    // 不再是"点了没任何效果"的假交互。
     readOnlyHint: String? = null,
     // 探测确认离线的节点名（来自订阅名单的 NodeItem.offline），按名字匹配到成员行打角标。
     offlineNames: Set<String> = emptySet(),
@@ -379,12 +362,9 @@ private fun NodeGroupCard(
                         member = member,
                         selected = member.name == selectedName,
                         offline = member.name in offlineNames,
-                        onClick =
-                        if (readOnlyHint == null) {
-                            { onSelect(member.name) }
-                        } else {
-                            null
-                        },
+                        // 离线兜底名单也允许点选：内核没起时点击只是记住 pending
+                        //（连接后自动生效），内核活着时直接下发（见 ServerViewModel）。
+                        onClick = { onSelect(member.name) },
                     )
                 }
             }

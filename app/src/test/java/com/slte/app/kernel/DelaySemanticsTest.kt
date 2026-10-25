@@ -108,6 +108,20 @@ class DelaySemanticsTest {
         assertEquals(members, orderMembers(members, emptyMap()))
     }
 
+    /**
+     * 面板索引用订阅名、成员名是内核名（带国旗前缀）时也要重排成功。
+     *
+     * 精确查表会全部落空 → 全是 Int.MAX_VALUE → 排序退化成 no-op，
+     * 节点段保留内核 UTF-8 字节序（与面板顺序不一致）。
+     */
+    @Test
+    fun `内核名带国旗前缀时仍能按面板序重排`() {
+        val members = listOf(member("🇯🇵 日本 01"), member("🇭🇰 香港 01"), member("🇸🇬 新加坡 01"))
+        val order = mapOf("香港 01" to 0, "日本 01" to 1, "新加坡 01" to 2)
+        val result = orderMembers(members, order)
+        assertEquals(listOf("🇭🇰 香港 01", "🇯🇵 日本 01", "🇸🇬 新加坡 01"), result.map { it.name })
+    }
+
     private fun group(
         name: String,
         selectable: Boolean,
@@ -332,6 +346,78 @@ class RoutingInputValidatorTest {
         assertFalse(RoutingInputValidator.isValidRuleDomainShape("-a.com"))
         assertFalse(RoutingInputValidator.isValidRuleDomainShape("a-.com"))
         assertFalse(RoutingInputValidator.isValidRuleDomainShape("http://a.com"))
+    }
+}
+
+/**
+ * 承载组解析：必须返回「真正含该节点的组」。
+ *
+ * 回归真机「选 [直]3美国 → 连接后变 [直]1德国」：旧实现在找不到承载组时回退主组名
+ * （主组的成员只有子组，patch 必然失败），而调用方用 `!= null` 判断"是否已解析到
+ * 承载组"，拿到主组名就立刻停止重试 → patch 主组失败 → 兜底 selectAuto 打回最快
+ * 节点。因此「找不到」必须返回 null，让调用方继续等内核把子组物化。
+ */
+class ResolveCarryingGroupTest {
+
+    private fun grp(
+        name: String,
+        selectable: Boolean,
+        vararg members: String,
+    ) = KernelProxyGroupInfo(
+        name = name,
+        type = if (selectable) "Selector" else "URLTest",
+        now = null,
+        selectable = selectable,
+        members = members.map { KernelProxyMember(it, isGroup = false, delay = null) },
+    )
+
+    @Test
+    fun `扁平订阅_主组直接含节点时返回主组`() {
+        val groups = listOf(grp("niuren", true, "[直]1德国", "[直]3美国"))
+        assertEquals("niuren", resolveCarryingGroup(groups, "[直]3美国"))
+    }
+
+    @Test
+    fun `嵌套订阅_真实节点挂在自动选择子组时返回子组`() {
+        // 真机结构：主组 niuren 的成员是子组「自动选择」，真实节点挂在子组下
+        val groups =
+            listOf(
+                grp("niuren", true, "自动选择"),
+                grp("自动选择", false, "[直]1德国", "[直]3美国"),
+            )
+        assertEquals("自动选择", resolveCarryingGroup(groups, "[直]3美国"))
+    }
+
+    @Test
+    fun `找不到承载组时必须返回 null 而不是主组名`() {
+        // 回归：旧实现末尾 `?: primary?.name` 返回"niuren"（成员只有子组）→ patch 必失败
+        val groups = listOf(grp("niuren", true, "自动选择"))
+        assertEquals(null, resolveCarryingGroup(groups, "[直]3美国"))
+    }
+
+    @Test
+    fun `子组尚未物化时不得伪造成功`() {
+        // 连接就绪瞬间内核可能只给出主组、子组成员列表还是空的
+        val groups = listOf(grp("niuren", true, "自动选择"), grp("自动选择", false))
+        assertEquals(null, resolveCarryingGroup(groups, "[直]3美国"))
+    }
+
+    @Test
+    fun `内核节点名带国旗前缀时仍解析到承载组`() {
+        // 真机关键回归：内核里的成员名是 `🇺🇸 [直]3美国`（带国旗），
+        // 而面板/订阅列表里是 `[直]3美国`。精确相等永远对不上 → 解析失败 →
+        // patch 不存在的组 → 兜底 selectAuto → 连接后变 [直]1德国。
+        val groups =
+            listOf(
+                grp("niuren", true, "自动选择"),
+                grp("自动选择", false, "🇩🇪 [直]1德国", "🇺🇸 [直]3美国", "🇺🇸 [CF]3美国"),
+            )
+        assertEquals("自动选择", resolveCarryingGroup(groups, "[直]3美国"))
+    }
+
+    @Test
+    fun `组列表为空时返回 null`() {
+        assertEquals(null, resolveCarryingGroup(emptyList(), "[直]3美国"))
     }
 }
 

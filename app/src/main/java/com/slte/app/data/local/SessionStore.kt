@@ -155,6 +155,11 @@ constructor(
             remove(KEY_OFFLINE_NODES)
             remove(KEY_TRAFFIC_LOG)
             remove(KEY_CACHE_OWNER)
+            // 预选节点必须一起清：登出/换账号后残留会让新账号沿用上一个账号选的
+            // 节点名，连接时解析不到 → 兜底 selectAuto，表现为"换号后节点乱跳"。
+            remove(KEY_PENDING_NODE)
+            // 连接计时起点同理：残留会让下次连接沿用旧时间戳（运行时长凭空多出一段）
+            remove(KEY_CONNECTED_SINCE)
         }
     }
 
@@ -175,6 +180,20 @@ constructor(
         prefs.edit { remove(KEY_CONNECTED_SINCE) }
     }
 
+    /**
+     * 未连接时的预选节点（niuren 定制，与桌面端同口径）：
+     * 内核没起来时点节点无法 patch 内核，把选择记住，连接成功后自动应用。
+     */
+    fun savePendingNode(name: String) {
+        prefs.edit { putString(KEY_PENDING_NODE, name) }
+    }
+
+    fun getPendingNode(): String? = prefs.getString(KEY_PENDING_NODE, null)
+
+    fun clearPendingNode() {
+        prefs.edit { remove(KEY_PENDING_NODE) }
+    }
+
     fun clearDataCache() {
         prefs.edit {
             remove(KEY_SUBSCRIBE_URL)
@@ -186,6 +205,9 @@ constructor(
             remove(KEY_SPEED_RESULTS)
             remove(KEY_OFFLINE_NODES)
             remove(KEY_TRAFFIC_LOG)
+            // 换账号登录走的正是这个入口：旧账号的预选节点必须一起清掉，
+            // 否则新账号会沿用旧节点名（解析不到 → 兜底自动选择）。
+            remove(KEY_PENDING_NODE)
         }
     }
 
@@ -207,5 +229,6 @@ constructor(
         private const val KEY_TRAFFIC_LOG = "traffic_log"
         private const val KEY_CACHE_OWNER = "cache_owner"
         private const val KEY_CONNECTED_SINCE = "connected_since_elapsed"
+        private const val KEY_PENDING_NODE = "pending_node"
     }
 }

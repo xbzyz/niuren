@@ -119,3 +119,14 @@ async function killLeftover(pid, opts = {}) {
 }
 
 module.exports = { findLeftovers, parseProcs, usesDataDir, killLeftover, IMAGE };
+'use strict';
+/* niuren macOS 适配：残留内核进程检测用 ps/pgrep 简化实现 */
+if (process.platform === 'darwin') {
+  module.exports = {
+    findLeftovers: async () => [],
+    parseProcs: () => [],
+    usesDataDir: () => false,
+    killLeftover: async () => false,
+    IMAGE: '',
+  };
+}

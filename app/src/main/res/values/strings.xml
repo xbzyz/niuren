@@ -1,6 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">Polaris</string>
     <string name="secure_prefs_degraded_warning">⚠ 安全存储异常：部分数据仅存于内存，重启后将丢失。请尝试清除应用数据后重新登录。</string>
 
     <!-- Login -->
@@ -119,7 +118,7 @@
     <string name="dashboard_refresh_done">订阅已更新</string>
     <string name="notification_permission_denied">未开启通知权限，连接状态提醒可能收不到</string>
     <string name="battery_opt_title">允许后台运行</string>
-    <string name="battery_opt_message">系统可能会在后台自动停止 Polaris，导致代理中断。请在电池优化中将 Polaris 设为"不优化"，以保持后台稳定运行。</string>
+    <string name="battery_opt_message">系统可能会在后台自动停止 niuren，导致代理中断。请在电池优化中将 niuren 设为"不优化"，以保持后台稳定运行。</string>
     <string name="battery_opt_go_settings">去设置</string>
     <string name="battery_opt_later">下次再说</string>
 
@@ -238,7 +237,7 @@
 
     <!-- About (关于软件) -->
     <string name="about_title">关于软件</string>
-    <string name="about_app_desc">Polaris — a lightweight mihomo (Clash) based proxy client.</string>
+    <string name="about_app_desc">niuren — a lightweight mihomo (Clash) based proxy client.</string>
     <string name="about_app_version">应用版本</string>
     <string name="about_kernel_version">内核版本</string>
     <string name="about_log_export">日志导出</string>
@@ -300,6 +299,11 @@
     <string name="settings_local_routing">本地分流方案</string>
     <string name="settings_local_routing_desc">启用 App 内置分流规则并忽略面板下发配置</string>
     <string name="settings_local_routing_failed">分流设置保存失败</string>
+
+    <!-- 首页公告（niuren 定制） -->
+    <string name="home_notice_tag">公告</string>
+    <string name="notice_read_button">已读</string>
+    <string name="notice_close_button">关闭</string>
     <string name="settings_routing_rules">分流规则管理</string>
     <string name="routing_rules_desc">内置分流规则组。拖动右侧手柄可调整顺序，顺序决定规则匹配的优先级；关闭的组不再生成对应分流规则；改动即时生效。</string>
     <string name="routing_rules_drag_handle">拖动排序</string>
@@ -375,7 +379,7 @@
     <string name="v5_balance">余额</string>
     <string name="v5_all_nodes">全部节点</string>
     <string name="v5_no_nodes">暂无节点，请先更新订阅</string>
-    <string name="v5_nodes_offline_hint">尚未连接：以下是订阅里的节点，连接后即可切换</string>
+    <string name="v5_nodes_offline_hint">尚未连接：可以直接点选节点，选择会被记住，连接后自动生效</string>
     <string name="v5_nodes_summary_offline">%1$d 个节点 · 未连接</string>
     <!-- 探测确认不可达（域名不存在/连接被拒/无路由），与灰色的「超时」区分：超时可能只是抖动 -->
     <string name="v5_node_offline">离线</string>
@@ -526,6 +530,7 @@
     <string name="proxy_groups_loading">正在读取分组</string>
     <string name="proxy_group_test">测速</string>
     <string name="proxy_group_select_failed">切换失败</string>
+    <string name="node_selection_pending">尚未连接，已记住该选择，连接后自动生效</string>
     <string name="proxy_group_type_select">手动选择</string>
     <string name="proxy_group_type_auto">自动测速</string>
     <string name="proxy_group_type_fallback">故障转移</string>
@@ -557,4 +562,9 @@
     <string name="settings_appearance">外观</string>
     <string name="settings_group_general">通用</string>
     <string name="settings_group_remind">提醒</string>
+
+    <!-- 首页节点选择（niuren 定制） -->
+    <string name="v5_home_pick_node_hint">点击选择节点</string>
+    <string name="v5_home_pick_node_title">选择节点</string>
+    <string name="v5_home_pick_node_count">%1$d 个节点</string>
 </resources>

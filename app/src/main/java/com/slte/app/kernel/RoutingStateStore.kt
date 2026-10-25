@@ -25,7 +25,7 @@ import kotlinx.serialization.json.Json
  * （未知字段两侧都会忽略，新增字段向后兼容）。
  *
  * 文件缺失/损坏时内核侧视为「本地分流关闭」（回退面板下发配置），因此 App 侧
- * 必须在订阅导入流程中主动 [ensureDefault] 写入默认启用状态。
+ * 必须在订阅导入流程中主动 [ensureDefault] 落盘（默认关闭，与桌面端 store 默认值同步）。
  */
 @Serializable
 data class RoutingCustomGroup(
@@ -230,15 +230,28 @@ constructor(
     }
 
     /**
-     * 状态文件不存在时写入启用状态（本地分流默认开启，产品语义），并同步
-     * 自家后端域名清单；已存在时仅补域名清单（保留用户的组开关/自定义组）。
+     * 状态文件不存在时写入关闭状态（本地分流默认关闭，与桌面端 store 默认值同步：
+     * 新装不再默认套用内置分类分组，节点页不会出现电报/TikTok/流媒体等内置组），
+     * 并同步自家后端域名清单；已存在时按"是否动过分流设置"决定是否回落：
+     *
+     * - 仍是旧版默认开（enabled=true 且无自定义组/顺序）= 从未动过 → 一次性关掉；
+     * - 动过（自定义组/顺序非空）或已手动关 → 保留原状，只补域名清单。
+     *
+     * setEnabled 当前无任何 UI 调用，因此"enabled=true 且没动过"只能是旧版默认值、
+     * 不可能是用户主动选择，回落关闭不会覆盖任何真实意图。
      * 仅在订阅导入流程（IO 线程）调用。
      */
     fun ensureDefault(directDomains: List<String>): Boolean = lock.withLock {
         if (!stateFile().exists()) {
-            write(RoutingState(enabled = true, directDomains = directDomains))
+            write(RoutingState(enabled = false, directDomains = directDomains))
         } else {
-            syncDirectDomains(directDomains)
+            val cur = load()
+            if (cur.enabled && cur.custom.isEmpty() && cur.order.isEmpty()) {
+                AppLog.i(LOG_TAG, "ensureDefault: 回落旧版默认开 → 关闭（从未动过分流设置）")
+                write(cur.copy(enabled = false, directDomains = directDomains))
+            } else {
+                write(cur.copy(directDomains = directDomains))
+            }
         }
     }
 

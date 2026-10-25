@@ -955,10 +955,14 @@ async function paymentMethods() {
  * POST 成功但没给地址（少数分支只回 true）才退回 GET 收银台地址，行为不退步。
  */
 async function checkoutUrl(tradeNo, method) {
+  // Xboard / V2Board 的 /user/order/checkout 统一用 `method` 字段（值就是支付方式的数字 id）。
+  // 旧代码发的是 `payment_id`，与 124353.xyz 这套面板对不上 → 下单拿不到支付地址、表现为"购买不了"。
+  // 两个字段都带上：以 method 为主，payment_id 作兜底兼容个别仍用旧字段名的 fork；
+  // callback_url 是多余字段，去掉以免个别面板做严格字段校验时误伤。
   const res = await post('/user/order/checkout', {
     trade_no: tradeNo,
+    method: method,
     payment_id: method,
-    callback_url: `${session.panelUrl}${API_PREFIX}/user/order/checkout`,
   });
   const raw = typeof res === 'string'
     ? res.trim()
@@ -968,7 +972,7 @@ async function checkoutUrl(tradeNo, method) {
     if (/^[a-z][a-z0-9+.-]*:/i.test(raw)) return raw;
     return `${session.panelUrl}${raw.startsWith('/') ? '' : '/'}${raw}`;
   }
-  return `${session.panelUrl}${API_PREFIX}/user/order/checkout?trade_no=${encodeURIComponent(tradeNo)}&payment_id=${encodeURIComponent(method)}`;
+  return `${session.panelUrl}${API_PREFIX}/user/order/checkout?trade_no=${encodeURIComponent(tradeNo)}&method=${encodeURIComponent(method)}`;
 }
 
 /** 工单正文：Xboard 的 XboardTicketData.message 是"消息数组"（安卓端口径），不是 content 字符串 */

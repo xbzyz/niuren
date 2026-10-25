@@ -19,7 +19,9 @@ const DEFAULTS = {
   autostart: false,
   version: '',                // 由 package.json 注入
   // —— 面板 ——
-  panel_url: '',
+  // 面板地址**写死**：本应用只对应这一个面板，登录页不再展示地址输入框，
+  // 用户也就没有填错地址的机会。要换面板改这里（或用户 settings.json 里的同键）。
+  panel_url: 'https://124353.xyz',
   last_email: '',
   auto_update: true,
   // 上次查到的线上最新版（空串 = 没查到更新）。设置页与侧边栏的红点由它与
@@ -38,11 +40,15 @@ const DEFAULTS = {
   update_sha_missing_streak: 0,
   // 上次内核启动定点核对的结果（硬要求①：跳过也要可诊断、关于页可见）
   last_kernel_verify: null,
+  // —— 在线客服 ——
+  // 客服浮窗挂件固定写在 src/index.html 末尾（chat.niurend.xyz/widget.js）。
+  // service_url 目前没有消费方（H5 内嵌卡已按需求移除），保留作占位。
+  service_url: '',
   // —— 更新来源 ——
   // 远程配置（可选的**覆盖**来源，可以指向镜像 / 自建 CDN）。安卓端在构建期注入同一份地址
   // （.github/workflows/build.yml 的 REMOTE_CONFIG_URLS）；Windows 端以前没人写这个键，
   // 于是 remote.load() 永远拿到空配置 —— 红点永远不会亮（2026-10-11 第 13 轮发现）。
-  remote_config_urls: 'https://raw.githubusercontent.com/ipevel/polaris/main/config/remote.json',
+  remote_config_urls: 'https://raw.githubusercontent.com/xbzyz/niuren/main/config/remote.json',
   // GitHub Releases 接口基址。空串 = https://api.github.com（与安卓端 AppUpdateChecker 同一套口径）。
   release_api_base: '',
   // —— 内核 / 网络 ——
@@ -65,13 +71,15 @@ const DEFAULTS = {
   subscription_updated_at: 0,
   subscribe_hosts: [],        // 见过的订阅域名，永远直连（见 core/remote.js）
   // —— 内置分流规则（离线 rule-provider，见 core/rulesets.js）——
-  routing_on: true,           // 本地分流总开关：true = 屏蔽面板下发的分流方案，只用本地内置方案
+  // 默认**关闭**（用户 2026-10-24 定：内置分类组"格格不入"，一律用面板自带的分流方案；
+  // 分流规则页的本地方案开关随时可以开回）。true = 屏蔽面板方案，只用本地内置分类。
+  routing_on: false,
   routing_rules: null,        // null = 用内置表的 defaultOn；数组 = 用户显式开关的组名
   routing_order: null,        // null = 用内置表顺序；数组 = 用户自定义顺序（分流页拖动调整）
   custom_rulesets: [],        // 用户自己写的分流组：[{name,out,enabled,rules:['DOMAIN-SUFFIX,x.com']}]
   // 设置文件的结构版本，用来做一次性迁移（见 migrate()）。
   // 没有这一项的老 settings.json 一律当作 0。
-  settings_schema: 3,
+  settings_schema: 4,
 };
 
 /**
@@ -115,6 +123,19 @@ function migrate(data) {
     if (from < tableVersion) {
       data.routing_order = null;
       log.info(`settings migrate: 内置分流表结构更新（v${from} → v${tableVersion}），重置组顺序为默认`);
+    }
+  }
+  if (from < 4) {
+    // schema 3 → 4（2026-10-24，用户定：默认不再用本地内置分流，与 mac 侧行为对齐）：
+    // 「本地方案」默认关闭、改走面板自带的分流方案。只迁移**从没动过分流设置**的
+    // 安装（总开关还是旧默认、没开关过组、没排过序、也没写过自定义组）——
+    // 显式配置过的用户保留原状，分流规则页的开关随时可以开回本地方案。
+    const untouched = (data.routing_on === undefined || data.routing_on === true)
+      && data.routing_rules == null && data.routing_order == null
+      && (!Array.isArray(data.custom_rulesets) || data.custom_rulesets.length === 0);
+    if (untouched) {
+      data.routing_on = false;
+      log.info('settings migrate: 本地方案默认关闭，改用面板自带分流（分流页可开回）');
     }
   }
   data.settings_schema = DEFAULTS.settings_schema;

@@ -2,7 +2,7 @@
 /**
  * 应用内更新的版本来源：GitHub Releases（与安卓端 AppUpdateChecker 同一套口径）。
  *
- * 安卓端直接查 `repos/ipevel/polaris/releases/latest`，取第一个 `.apk` 资产，不看远程配置。
+ * 安卓端直接查 `repos/xbzyz/niuren/releases/latest`，取第一个 `.apk` 资产，不看远程配置。
  * Windows 端原先只认远程配置里的 `update_version`，而那个字段一直是空的 —— 结果就是
  * "红点永远不会亮"（2026-10-11 第 13 轮发现）。这里补上同一条链路：发完版两端都能自己
  * 发现新版本，不需要每次发版再手动去改 `config/remote.json`。
@@ -19,7 +19,7 @@ const store = require('../store');
 const fmt = require('../util/format');
 
 const DEFAULT_API = 'https://api.github.com';
-const REPO = 'ipevel/polaris';
+const REPO = 'xbzyz/niuren';
 
 /** 允许改基址：公司镜像 / 内网代理 / 自检里指向本地假 GitHub。空串 = 官方 api.github.com */
 function apiBase() {

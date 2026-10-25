@@ -14,7 +14,9 @@ import android.os.SystemClock
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -22,9 +24,12 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ArrowDownward
 import androidx.compose.material.icons.outlined.ArrowUpward
@@ -32,13 +37,17 @@ import androidx.compose.material.icons.outlined.BarChart
 import androidx.compose.material.icons.outlined.CreditCard
 import androidx.compose.material.icons.outlined.Memory
 import androidx.compose.material.icons.outlined.Public
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -54,8 +63,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.slte.app.R
+import com.slte.app.domain.model.Notice
 import com.slte.app.ui.screen.main.DashboardData
+import com.slte.app.ui.screen.server.NodeItem
 import com.slte.app.ui.screen.main.proxyModeLabelRes
+import com.slte.app.ui.theme.SlteIcons
 import com.slte.app.ui.theme.V5Spacing
 import com.slte.app.ui.theme.V5ThemeColors
 import com.slte.app.ui.theme.V5Type
@@ -81,6 +93,8 @@ import com.slte.app.ui.v5.V5RowItem
 import com.slte.app.ui.v5.V5ScrollBody
 import com.slte.app.ui.v5.V5Sheet
 import com.slte.app.ui.v5.V5TopBar
+import com.slte.app.ui.v5.V5TopIconButton
+import com.slte.app.ui.v5.v5Clickable
 import com.slte.app.ui.v5.v5Enter
 import com.slte.app.utils.FormatUtils
 
@@ -292,6 +306,8 @@ private fun SessionCard(
 @Composable
 internal fun V5HomeScreen(
     data: DashboardData,
+    // 首页公告（niuren 定制）：非空时显示顶部跑马灯；最新未读的会自动弹窗
+    notices: List<Notice> = emptyList(),
     onToggleConnection: () -> Unit,
     onVpnPermissionDenied: () -> Unit,
     vpnRequestIntent: () -> android.content.Intent?,
@@ -299,6 +315,14 @@ internal fun V5HomeScreen(
     onNavSelect: (NavTab) -> Unit,
     refreshKernelInfo: () -> Unit,
     onProxyModeClick: () -> Unit = {},
+    // —— 首页节点选择（niuren 定制）：连接舞台的节点行可点，弹出选择节点面板。
+    // 未连接也能选（内核活着即时生效，否则记 pending 连接后自动应用），
+    // 面板内可测速——内核活着时测的是经代理协议的真延迟（见 ServerViewModel.startSpeedTest）。
+    nodes: List<NodeItem> = emptyList(),
+    pendingNodeName: String? = null,
+    isTestingAll: Boolean = false,
+    onPickNode: (String) -> Unit = {},
+    onStartSpeedTest: () -> Unit = {},
 ) {
     val c = V5ThemeColors.current
     val connected = data.isConnected
@@ -382,6 +406,17 @@ internal fun V5HomeScreen(
 
     LaunchedEffect(Unit) { refreshKernelInfo() }
 
+    // —— 公告弹窗（niuren 定制）：公告数据一落地，自动弹最新一条未读。
+    // 去重与 Windows 端同口径（已读集合持久化）：点「已读」后不再弹，新公告（不同 id）照弹。
+    var popupNotice by remember { mutableStateOf<Notice?>(null) }
+    var noticePopupChecked by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(notices) {
+        if (noticePopupChecked || notices.isEmpty()) return@LaunchedEffect
+        noticePopupChecked = true
+        val read = noticeReadSet(context)
+        notices.firstOrNull { it.id.toString() !in read }?.let { popupNotice = it }
+    }
+
     // 大状态行：v5 的顶栏状态胶囊移到连接钮下方（iOS 式：圆钮 + 状态 + 节点行）。
     val statusBig = when {
         connected -> stringResource(R.string.v5_connected_title)
@@ -394,14 +429,28 @@ internal fun V5HomeScreen(
             if (delay != null && delay > 0) "${data.serverName} · $delay ms" else data.serverName
         }
         connecting -> stringResource(R.string.v5_connecting_wait)
+        // 未连接：已预选的显示节点名，否则提示可点选
+        pendingNodeName != null -> pendingNodeName
+        nodes.isNotEmpty() -> stringResource(R.string.v5_home_pick_node_hint)
         else -> stringResource(R.string.v5_ready_no_node)
     }
+    // 节点行可点 = 有节点可选（未连接选节点：内核活着即时生效 / 进程没起记 pending）
+    val nodePickerEnabled = nodes.isNotEmpty() && !connecting
+    var pickerVisible by remember { mutableStateOf(false) }
 
     V5PageScaffold(tab = NavTab.HOME, onNavSelect = onNavSelect) {
         // 顶栏显示面板站点名（DashboardData.siteName，清洗与截断由 siteDisplayName 负责），
         // 底部 tab 才有"首页"字样；v1.6.1 就是这个契约，v1.7.x 一度被写死成"首页"。
         V5TopBar(siteDisplayName(data.siteName, stringResource(R.string.app_name)))
         V5ScrollBody(NavTab.HOME) {
+            // —— 公告跑马灯（niuren 定制）：有公告才显示，点击查看最新一条
+            if (notices.isNotEmpty()) {
+                NoticeMarqueeBar(
+                    notice = notices.first(),
+                    modifier = Modifier.v5Enter(0),
+                    onClick = { popupNotice = notices.first() },
+                )
+            }
             // —— 连接舞台：白底色环大圆钮 + 状态 + 节点行（v6 不再套卡片、不再有氛围底）。
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -422,15 +471,39 @@ internal fun V5HomeScreen(
                     Text(statusBig, fontSize = 20.sp, fontWeight = FontWeight.Bold, color = c.text)
                 }
                 Spacer(Modifier.height(V5Spacing.dp4))
-                Text(
-                    nodeLine,
-                    fontSize = V5Type.sp15,
-                    color = c.text3,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = V5Spacing.dp16),
-                )
+                // 节点行（niuren 定制）：可点选节点——未连接也能选、也能在面板里测真延迟
+                val nodeLineColor = if (nodePickerEnabled) c.text2 else c.text3
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .then(
+                            if (nodePickerEnabled) {
+                                Modifier.then(v5Clickable(onClick = { pickerVisible = true }))
+                            } else {
+                                Modifier
+                            },
+                        ).padding(horizontal = V5Spacing.dp16, vertical = V5Spacing.dp4),
+                ) {
+                    Text(
+                        nodeLine,
+                        fontSize = V5Type.sp15,
+                        color = nodeLineColor,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.weight(1f),
+                    )
+                    if (nodePickerEnabled) {
+                        Text(
+                            "›",
+                            fontSize = 18.sp,
+                            color = c.text3,
+                            modifier = Modifier.padding(start = V5Spacing.dp4),
+                        )
+                    }
+                }
             }
             // —— 速率卡
             Row(horizontalArrangement = Arrangement.spacedBy(V5Spacing.dp12), modifier = Modifier.v5Enter(1)) {
@@ -495,5 +568,176 @@ internal fun V5HomeScreen(
                 },
             )
         }
+    }
+
+    // —— 选择节点面板（niuren 定制）：未连接也能选节点、也能测真延迟
+    if (pickerVisible) {
+        NodePickerSheet(
+            nodes = nodes,
+            selectedName = data.serverName.takeIf { connected } ?: pendingNodeName,
+            isTestingAll = isTestingAll,
+            onPick = { name ->
+                pickerVisible = false
+                onPickNode(name)
+            },
+            onSpeedTest = onStartSpeedTest,
+            onDismiss = { pickerVisible = false },
+        )
+    }
+
+    // 公告弹窗：点「已读」记入已读集合（永不再弹）；点「关闭」只收起本次（下次进首页还会弹）
+    popupNotice?.let { notice ->
+        AlertDialog(
+            onDismissRequest = { popupNotice = null },
+            title = {
+                Text(notice.title, fontSize = V5Type.sp16, fontWeight = FontWeight.Bold)
+            },
+            text = {
+                Text(
+                    // 公告正文是富文本/HTML：与公告列表页同口径去标签后纯文本展示
+                    notice.body.replace(Regex("<[^>]*>"), "").trim(),
+                    fontSize = V5Type.sp12_5,
+                    color = V5ThemeColors.current.text2,
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    markNoticeRead(context, notice.id)
+                    popupNotice = null
+                }) { Text(stringResource(R.string.notice_read_button)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { popupNotice = null }) {
+                    Text(stringResource(R.string.notice_close_button))
+                }
+            },
+        )
+    }
+}
+
+/**
+ * 首页公告跑马灯：📢 图标 + 最新一条公告标题横向滚动（Compose 自带 basicMarquee）。
+ * 点击弹出该条公告详情（与自动弹窗同一份 AlertDialog 逻辑）。
+ */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun NoticeMarqueeBar(
+    notice: Notice,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val c = V5ThemeColors.current
+    V5CardFlat(modifier.fillMaxWidth()) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .fillMaxWidth()
+                .then(v5Clickable(onClick = onClick))
+                .padding(horizontal = V5Spacing.dp12, vertical = 10.dp),
+        ) {
+            Icon(
+                SlteIcons.Notifications,
+                contentDescription = stringResource(R.string.home_notice_tag),
+                tint = c.accent,
+                modifier = Modifier.size(16.dp),
+            )
+            Text(
+                stringResource(R.string.home_notice_tag),
+                fontSize = V5Type.sp12,
+                fontWeight = FontWeight.SemiBold,
+                color = c.accent,
+                modifier = Modifier.padding(start = V5Spacing.dp6),
+            )
+            Text(
+                notice.title,
+                fontSize = V5Type.sp12,
+                color = c.text2,
+                maxLines = 1,
+                softWrap = false,
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(start = V5Spacing.dp8)
+                    .basicMarquee(iterations = Int.MAX_VALUE),
+            )
+        }
+    }
+}
+
+/**
+ * 首页「选择节点」面板（niuren 定制）：订阅节点 + 延迟标记 + 测速入口。
+ * 行渲染复用节点页的 [MemberRow]——同一节点在两处显示相同的延迟与标签，避免双实现漂移。
+ * 未连接时点行：内核活着即时生效，进程没起记 pending、连接后自动应用（见 ServerViewModel）。
+ */
+@Composable
+private fun NodePickerSheet(
+    nodes: List<NodeItem>,
+    selectedName: String?,
+    isTestingAll: Boolean,
+    onPick: (String) -> Unit,
+    onSpeedTest: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val c = V5ThemeColors.current
+    V5Sheet(onDismiss = onDismiss, title = stringResource(R.string.v5_home_pick_node_title)) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier =
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = V5Spacing.dp16, vertical = V5Spacing.dp4),
+        ) {
+            Text(
+                stringResource(R.string.v5_home_pick_node_count, nodes.size),
+                fontSize = V5Type.sp11_5,
+                fontFamily = FontFamily.Monospace,
+                color = c.text3,
+                modifier = Modifier.weight(1f),
+            )
+            if (isTestingAll) {
+                V5Chip(ChipTone.ACCENT, stringResource(R.string.v5_speed_testing), dot = true)
+            } else {
+                Text(
+                    stringResource(R.string.server_speed_test),
+                    fontSize = V5Type.sp13,
+                    fontWeight = FontWeight.SemiBold,
+                    color = c.accent,
+                    modifier =
+                    Modifier
+                        .then(v5Clickable(onClick = onSpeedTest))
+                        .padding(horizontal = V5Spacing.dp4, vertical = V5Spacing.dp4),
+                )
+            }
+        }
+        Column(
+            Modifier
+                .heightIn(max = 420.dp)
+                .verticalScroll(rememberScrollState()),
+        ) {
+            offlineMembersOf(nodes).forEach { member ->
+                MemberRow(
+                    member = member,
+                    selected = member.name == selectedName,
+                    onClick = { onPick(member.name) },
+                )
+            }
+        }
+    }
+}
+
+/** 已读公告 id 集合（SharedPreferences 持久化，与 Windows 端 nr_notice_read 同语义）。 */private fun noticeReadSet(context: Context): Set<String> =
+    runCatching {
+        context
+            .getSharedPreferences("nr_notice", Context.MODE_PRIVATE)
+            .getStringSet("read", emptySet())
+            .orEmpty()
+    }.getOrDefault(emptySet())
+
+private fun markNoticeRead(context: Context, id: Int) {
+    runCatching {
+        context
+            .getSharedPreferences("nr_notice", Context.MODE_PRIVATE)
+            .edit()
+            .putStringSet("read", noticeReadSet(context) + id.toString())
+            .apply()
     }
 }

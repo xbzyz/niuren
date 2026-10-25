@@ -35,7 +35,7 @@ class ExternalLinksTest {
 
     @Test
     fun `非 Activity 上下文打开 https 链接会带上 NEW_TASK`() {
-        val url = "https://github.com/ipevel/polaris/releases"
+        val url = "https://github.com/xbzyz/niuren/releases"
         assertTrue(openExternalUrl(app, url))
 
         val started = shadowOf(app).nextStartedActivity

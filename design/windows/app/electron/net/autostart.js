@@ -12,7 +12,7 @@ const { app } = require('electron');
 const log = require('../logger');
 
 const KEY = 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run';
-const NAME = 'Polaris';
+const NAME = 'niuren';
 
 function value() {
   return process.platform === 'linux' ? path.join(process.env.HOME || '', '.config', 'autostart', `${NAME}.desktop`) : KEY;
@@ -52,3 +52,12 @@ function apply(enabled) {
 }
 
 module.exports = { apply, isEnabled, command };
+'use strict';
+/* niuren macOS 适配：开机自启走 LaunchAgent 暂未实现，导出安全桩 */
+if (process.platform === 'darwin') {
+  module.exports = {
+    apply: () => {},
+    isEnabled: () => false,
+    command: () => '',
+  };
+}

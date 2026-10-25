@@ -3,9 +3,12 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<!-- 严格 CSP：渲染层只加载本地资源，禁外联、禁插件、禁 form 提交 -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
-<title>Polaris</title>
+<!-- 严格 CSP：渲染层只加载本地资源，禁外联、禁插件、禁 form 提交。
+     例外：放行 chat.niurend.xyz（在线客服挂件域名，含脚本/接口/弹窗）。
+     img-src 放行所有 http/https 源：聊天图片可能存在任意上传域名/协议下，
+     网页端没有 CSP 所以正常，客户端若限域就会显示碎图标（用户实测）。 -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' https://chat.niurend.xyz; script-src 'self' https://chat.niurend.xyz 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://chat.niurend.xyz; img-src 'self' data: blob: http: https:; font-src 'self' data: https://chat.niurend.xyz; connect-src 'self' https://chat.niurend.xyz wss://chat.niurend.xyz; frame-src 'self' https://chat.niurend.xyz; object-src 'none'; base-uri 'self'; form-action 'self' https://chat.niurend.xyz">
+<title>niuren</title>
 <link rel="stylesheet" href="css/design.css">
 <link rel="stylesheet" href="css/shell.css">
 <link rel="stylesheet" href="css/views-extra.css">
@@ -23,10 +26,10 @@
       <nav class="sidebar-nav" aria-label="主导航">
         <section class="nav-section">
           <div class="nav-link nav-item" data-route="home" tabindex="0">
-            <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l2.5-6 4 13 2.5-7h5"/></svg></span><span>活动</span>
+            <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l2.5-6 4 13 2.5-7h5"/></svg></span><span>连接</span>
           </div>
           <div class="nav-link nav-item" data-route="nodes" tabindex="0">
-            <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="2.6"/><circle cx="18" cy="6" r="2.6"/><circle cx="12" cy="18" r="2.6"/><path d="M8.2 6h7.6M7.4 8.3l3.4 7.4M16.6 8.3l-3.4 7.4"/></svg></span><span>策略</span>
+            <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="2.6"/><circle cx="18" cy="6" r="2.6"/><circle cx="12" cy="18" r="2.6"/><path d="M8.2 6h7.6M7.4 8.3l3.4 7.4M16.6 8.3l-3.4 7.4"/></svg></span><span>节点</span>
           </div>
           <div class="nav-link nav-item" data-route="traffic" tabindex="0">
             <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M5 20v-7"/><path d="M11 20V5"/><path d="M17 20v-4"/><path d="M3 20h18"/></svg></span><span>流量</span>
@@ -62,5 +65,26 @@
 <script src="js/api.js"></script>
 <script src="js/views.js"></script>
 <script src="js/app.js"></script>
+<!-- 在线客服挂件（chat.niurend.xyz）：悬浮在首页右下角，1 秒后自动弹出。
+     CSP 已为该域名放行。挂件自带浮窗 UI，因此原来的「客服」悬浮按钮/卡片已移除。 -->
+<script src="https://chat.niurend.xyz/widget.js" host="https://chat.niurend.xyz" host-id="1" auto-reg="true" title="牛人24小时在线咨询" logo="https://chat.niurend.xyz/uploads/file_qp5s5lxpmv20ha6o.ico" theme-color="#2563eb" close-width="48" close-height="48" open-width="380" open-height="680" position="right" welcome="需要什么" popup-title="需要帮助吗？" popup-subtitle="客服随时在线！" popup-image="https://www.xiaoahua.cn/niuren/客服JS代码.jpeg" auto-open="false" auto-open-delay="0" async></script>
+<script>
+/* 客服挂件不自动展开：后台 /api/config 的 widgetParams.autoOpen 会覆盖页面属性，
+ * 这里在挂件初始化后把 cfg.autoOpen / autoOpenDelay 锁死为 false/0——
+ * 后台配置再怎么改也无法自动弹开聊天窗（手动点图标不受影响）。 */
+(function () {
+  var tries = 0;
+  var t = setInterval(function () {
+    if (++tries > 300) { clearInterval(t); return; }   // 最多等 15s
+    if (!(window.CSW && CSW.config)) return;
+    clearInterval(t);
+    try {
+      Object.defineProperty(CSW.config, "autoOpen", { get: function () { return false; }, set: function () {}, configurable: true });
+      Object.defineProperty(CSW.config, "autoOpenDelay", { get: function () { return 0; }, set: function () {}, configurable: true });
+      Object.defineProperty(CSW.config, "autoOpenOnce", { get: function () { return false; }, set: function () {}, configurable: true });
+    } catch (e) {}
+  }, 50);
+})();
+</script>
 </body>
 </html>

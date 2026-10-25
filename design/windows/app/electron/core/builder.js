@@ -300,7 +300,12 @@ function build(doc, opts = {}) {
 
   return {
     config: out,
-    mixedPort,
+    // 返回「内核实际监听」的端口：TUN 模式下上面把 mixed-port 置 0（TUN 接管后不再
+    // 提供独立 HTTP 代理端口），这里必须跟着返回 0，否则 runtime.json / S.mixedPort /
+    // get_settings.running_port 会拿到用户设定的端口，而内核其实没在它上面监听 ——
+    // 设置页和端口弹窗就会显示一个不存在的代理端口（已修复）。
+    // 非 TUN 模式 out['mixed-port'] 就是 wantedMixedPort（或随机），与原返回值一致。
+    mixedPort: out['mixed-port'],
     controllerPort,
     secret,
     warnings,

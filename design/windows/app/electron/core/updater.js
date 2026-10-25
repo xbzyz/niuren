@@ -123,6 +123,8 @@ function info() {
     apply_incomplete: applyIncomplete(),
     staged_ignored: S.staged_ignored || null,
     portable: paths.isPortable(),
+    installed: paths.isInstalled(),
+    install_writable: paths.installWritable(),
     packaged: paths.isPackaged,
     can_apply: canApply(),
     download_via: S.download_via || '',
@@ -163,16 +165,20 @@ function stagingDir() { return path.join(updateDir(), 'staging'); }
 function stateFile() { return path.join(updateDir(), 'staged.json'); }
 
 /**
- * 能不能自我替换。只有「打包 + 便携（安装目录可写）」才允许：
+ * 能不能自我替换。只看「打包 + 安装目录可写」：
  * 开发态覆盖的是源码目录，只读目录（Program Files / 只读 U 盘）覆盖会失败。
+ *
+ * 注意这里判的是**安装目录**可写，不是数据目录 —— 安装版把数据放 %APPDATA%/niuren，
+ * isPortable() 恒为 false，但装在 %LOCALAPPDATA%\Programs 下时安装目录照样可写，
+ * 自更新一样能跑（便携版两者是同一个目录，行为不变）。
  */
 function canApply() {
-  return paths.isPackaged && paths.isPortable() && S.phase === 'staged';
+  return paths.isPackaged && paths.installWritable() && S.phase === 'staged';
 }
 
 function applyBlockedReason() {
   if (!paths.isPackaged) return '开发态不支持自我替换，请手动更新';
-  if (!paths.isPortable()) return '当前安装目录不可写（可能装在 Program Files 或只读盘），请手动解压更新';
+  if (!paths.installWritable()) return '当前安装目录不可写（可能装在 Program Files 或只读盘），请手动更新';
   if (S.phase !== 'staged') return '还没有下载好的更新包';
   return '';
 }
@@ -1434,8 +1440,9 @@ function apply() {
       POLARIS_APPLY_TARGET: String(appDir),
       POLARIS_APPLY_UPDATEDIR: updateDir(),
       // helper 从临时目录运行后，paths.root() 会按 exe 位置解析；这个变量把它的
-      // 数据目录钉回安装目录（守卫 1 会校验它存在且不在临时目录）
-      POLARIS_DATA_DIR: appDir,
+      // 数据目录钉回真实数据目录（守卫 1 会校验它存在且不在临时目录）。
+      // 便携版 = 安装目录，安装版 = %APPDATA%/niuren，都由 paths.root() 给出。
+      POLARIS_DATA_DIR: paths.root(),
     },
   });
   if (outFd != null) { try { fs.closeSync(outFd); } catch (_) {} }

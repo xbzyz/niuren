@@ -91,9 +91,12 @@ constructor(
     private var loginJob: Job? = null
     private var registerConfigJob: Job? = null
 
-    /** 面板地址初始值：仅回显已保存的用户地址，App 不预填任何内置地址 */
+    /**
+     * 面板地址初始值：niuren 定制——面板地址**写死**为构建期注入的 API_BASE_URL，
+     * 登录页不再展示地址输入框（与桌面端 store 默认值同一口径）。
+     */
     private fun initialForm() = LoginUiState.Form(
-        panelUrl = apiUrlStore.currentUrl.orEmpty(),
+        panelUrl = com.slte.app.BuildConfig.API_BASE_URL,
         backendType = apiUrlStore.backendType,
     )
 
@@ -244,12 +247,7 @@ constructor(
             return
         }
 
-        // 面板地址变更确认
-        needsPanelUrlConfirmation(f.panelUrl)?.let { (url, isPrivate) ->
-            _uiState.value = LoginUiState.ConfirmPanelUrl(f, url, isPrivate, PendingAction.LOGIN)
-            return
-        }
-
+        // niuren 定制：面板地址已写死、界面不可改，「变更确认」弹窗不再需要
         performLogin(f)
     }
 
@@ -300,12 +298,7 @@ constructor(
             return
         }
 
-        // 面板地址变更确认
-        needsPanelUrlConfirmation(f.panelUrl)?.let { (url, isPrivate) ->
-            _uiState.value = LoginUiState.ConfirmPanelUrl(f, url, isPrivate, PendingAction.CHECK_REGISTER_CONFIG)
-            return
-        }
-
+        // niuren 定制：面板地址已写死、界面不可改，「变更确认」弹窗不再需要
         performCheckRegisterConfig(f)
     }
 

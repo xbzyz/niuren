@@ -36,7 +36,7 @@ data class ReleaseInfo(
 /**
  * 应用内更新：从 GitHub Releases 检查新版本。
  *
- * 版本来源固定为 `ipevel/polaris` 的 latest release，APK 取首个 `.apk` 资产。
+ * 版本来源固定为 `xbzyz/niuren` 的 latest release，APK 取首个 `.apk` 资产。
  * 返回 `null` 表示当前已是最新；抛异常表示检查失败（网络/解析）。
  */
 @Singleton
@@ -54,7 +54,7 @@ constructor() {
         val request =
             Request
                 .Builder()
-                .url("https://api.github.com/repos/ipevel/polaris/releases/latest")
+                .url("https://api.github.com/repos/xbzyz/niuren/releases/latest")
                 .header("Accept", "application/vnd.github+json")
                 .build()
         client.newCall(request).execute().use { resp ->

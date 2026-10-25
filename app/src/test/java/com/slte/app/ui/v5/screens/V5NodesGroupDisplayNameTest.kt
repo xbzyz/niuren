@@ -75,7 +75,6 @@ class V5NodesGroupDisplayNameTest {
                     onTestGroup = {},
                     onStartSpeedTest = {},
                     onRefreshSubscription = {},
-                    onRoutingRules = {},
                     onNavSelect = {},
                     collapsedSections = collapsedSections,
                     onToggleSection = onToggleSection,

@@ -29,7 +29,7 @@ import org.junit.Test
 /**
  * `RuleResources` 的刷新契约（P1）。
  *
- * 用 MockWebServer 起一个假的 `ipevel/polaris-rules` 仓库，走**真实的** OkHttp 取件口，
+ * 用 MockWebServer 起一个假的 `xbzyz/niuren-rules` 仓库，走**真实的** OkHttp 取件口，
  * 所以这里验的是生产路径，不是替身。契约要点：
  * 新鲜就零请求 · SHA 未变零下载 · 校验不过绝不覆盖也绝不写标记 ·
  * 清单取不到判失败（不许静默跳过）· 只下本 App 要的那几份。

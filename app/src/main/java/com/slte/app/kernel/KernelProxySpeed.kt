@@ -156,8 +156,18 @@ private suspend fun KernelProxy.structuralSpeedTest(
                 val poll =
                     launch {
                         repeat((budget / PROGRESS_POLL_INTERVAL_MS).toInt()) {
-                            val snapshot = queryAllGroupDelays(clash, hasTestRun = true)
-                            if (snapshot.isNotEmpty()) onProgress(snapshot)
+                            // 采样是**可选**的：一次 binder 抖动（DeadObject 等）若从这里逃逸，
+                            // 会连带取消同一 coroutineScope 里的 healthCheck，把整轮测速毁掉
+                            // （随后 queryAllGroupDelays 再抛 → safe 兜成空结果 → 弹「测速失败」）。
+                            runCatching {
+                                val snapshot = queryAllGroupDelays(clash, hasTestRun = true)
+                                if (snapshot.isNotEmpty()) onProgress(snapshot)
+                            }.onFailure {
+                                AppLog.w(
+                                    "Polaris-Kernel",
+                                    "structuralSpeedTest: 进度采样失败（忽略）：${it.message}",
+                                )
+                            }
                             delay(PROGRESS_POLL_INTERVAL_MS)
                         }
                     }
@@ -487,7 +497,12 @@ suspend fun KernelProxy.speedTestUntilReady(
 
 fun KernelProxy.cachedSpeedResults(): Map<String, Int>? = speedResultStore.getSpeedResults()
 
-suspend fun KernelProxy.runAutoSpeedTest(): Map<String, Int> = safe(emptyMap(), "runAutoSpeedTest") {
+suspend fun KernelProxy.runAutoSpeedTest(
+    // false = 只测速回填延迟，跳过末尾的 selectAuto。用户预选/手动选过具体节点时
+    // 不能把选择拉回最快节点——否则连接后显示的永远是第 1 个节点
+    //（真机反馈"选的是 [直]3美国，连接后自动变成 [直]1德国"）。
+    autoSelect: Boolean = true,
+): Map<String, Int> = safe(emptyMap(), "runAutoSpeedTest") {
     SpeedTestGate.run(cached = { cachedSpeedResults().orEmpty() }) {
         AppLog.d("Polaris-Kernel", "runAutoSpeedTest: start")
         var delays = speedTestAndCache()
@@ -499,7 +514,7 @@ suspend fun KernelProxy.runAutoSpeedTest(): Map<String, Int> = safe(emptyMap(), 
             delays = speedTestAndCache()
         }
         AppLog.d("Polaris-Kernel", "runAutoSpeedTest: delays=$delays")
-        if (delays.isNotEmpty()) {
+        if (delays.isNotEmpty() && autoSelect) {
             val info = serverInfo()
             if (info?.selection == null ||
                 info.selection == SelectionType.AUTO ||

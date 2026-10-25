@@ -9,6 +9,7 @@ import com.github.kr328.clash.service.remote.IClashManager
 import com.slte.app.R
 import com.slte.app.data.local.InMemoryPreferences
 import com.slte.app.data.local.NodesSectionStore
+import com.slte.app.data.local.SessionStore
 import com.slte.app.data.repository.ServerRepository
 import com.slte.app.data.repository.SubscribeRepository
 import com.slte.app.domain.model.ServerNode
@@ -24,6 +25,7 @@ import com.slte.app.support.stubKernelBridge
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.verify
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.advanceUntilIdle
@@ -52,11 +54,23 @@ class ServerViewModelTest {
      */
     private val profileLoadedFlow = MutableStateFlow(0)
 
-    private fun viewModel(): ServerViewModel {
+    private fun viewModel(
+        sessionStore: SessionStore = SessionStore(InMemoryPreferences()),
+    ): ServerViewModel {
         kernelProxy.stubKernelBridge()
         every { subscribeRepository.getCachedSubscribeInfo() } returns null
         every { kernelManager.profileLoaded } returns profileLoadedFlow
-        return ServerViewModel(serverRepository, subscribeRepository, kernelProxy, kernelManager, nodesSectionStore)
+        // connected 必须给真流：relaxed mock 的 StateFlow 一 collect 就抛 KotlinNothingValueException
+        //（VM init 里订阅 connected 维护 pendingNode）
+        every { kernelManager.connected } returns MutableStateFlow(false)
+        return ServerViewModel(
+            serverRepository,
+            subscribeRepository,
+            kernelProxy,
+            kernelManager,
+            nodesSectionStore,
+            sessionStore,
+        )
     }
 
     private fun node(
@@ -109,11 +123,21 @@ class ServerViewModelTest {
     /**
      * 内核侧选择失败必须给出可见反馈：旧实现丢弃了内核返回的 Boolean，
      * 用户点了没反应。这里用"内核未就绪（clash()=null）"制造失败。
+     * 注意语义边界：**VPN 连接中**失败才是真故障要报错；未连接失败会降级为
+     * 记住选择（见下方「未连接时patch失败降级为记住选择」）。
      */
     @Test
     fun `主组选择失败时给出可见提示`() = runTest(mainRule.dispatcher) {
         coEvery { serverRepository.fetchServers(any()) } returns Result.success(listOf(node("香港01", 1)))
         val vm = viewModel()
+        // clashAlive 是顶层挂起扩展（静态分派，mockk 桩不到），走真实实现 manager.clash() != null。
+        // viewModel() 里 stubKernelBridge(ready=false) 把 clash() 桩成 null → clashAlive=false →
+        // 会提前退到"记住 pending"分支而不写 errorMessageRes。这里换成非空 clash 走真实下发分支。
+        val aliveManager = mockk<KernelManager>(relaxed = true)
+        every { aliveManager.clash() } returns mockk(relaxed = true)
+        every { kernelProxy.manager } returns aliveManager
+        // 模拟"连接中"：此状态下 patch 失败才是真故障，必须提示
+        every { kernelManager.connected } returns MutableStateFlow(true)
         vm.loadNodes(force = true)
         advanceUntilIdle()
 
@@ -121,6 +145,89 @@ class ServerViewModelTest {
         advanceUntilIdle()
 
         assertEquals(R.string.proxy_group_select_failed, vm.errorMessageRes.value)
+    }
+
+    /**
+     * 回归（首页"选不了节点"根因）：进首页的瞬间 `_proxyGroups` 尚未加载
+     * （DashboardPageContent 直到本轮才补拉），`selectPrimaryMember` 必须先按需
+     * 补拉组列表、取真实主组名（如 "niuren"）再下发，不能回退字面量 PrimaryGroupName
+     * （"🚀 节点选择"）——否则 patch 到不存在的组、选择永远不生效（真机反馈"选不了"）。
+     */
+    @Test
+    fun `组列表未加载时也按需取真实主组名再下发选择`() = runTest(mainRule.dispatcher) {
+        val vm = viewModel()
+
+        // 内核活着 + 可读策略组，主组真实名为 "niuren"（非字面量 PrimaryGroupName）。
+        // 不调 loadProxyGroups()：模拟首页进页瞬间、组列表尚未就绪时用户抢先点选，
+        // 此时 `_proxyGroups` 为空，selectPrimaryMember 必须按需补拉再下发。
+        kernelProxy.stubKernelBridge()
+        val clash = mockk<IClashManager>(relaxed = true)
+        val proxies =
+            listOf(Proxy(name = "香港01", title = "香港01", subtitle = "", type = "vmess", delay = 42, isGroup = false))
+        every { clash.queryProxyGroupNames(any()) } returns listOf("niuren")
+        every { clash.queryProxyGroup(any(), any()) } returns
+            ProxyGroup(type = "Selector", proxies = proxies, now = "香港01")
+        val manager = mockk<KernelManager>(relaxed = true)
+        every { manager.clash() } returns clash
+        every { kernelProxy.manager } returns manager
+
+        assertTrue("前置：组列表应尚未加载", vm.proxyGroups.value.isEmpty())
+
+        vm.selectPrimary("香港01")
+        advanceUntilIdle()
+
+        // 必须用真实主组名 "niuren" 下发（patchSelector 首参即组名），而非字面量 "🚀 节点选择"
+        verify { clash.patchSelector("niuren", "香港01") }
+        assertNull("选择成功不应写错误消息", vm.errorMessageRes.value)
+    }
+
+    /**
+     * 回归（真机截图"未连接选节点弹「切换失败」"）：内核服务活着（clashAlive=true）
+     * 但里面查不到任何策略组——VPN 未连接时 profile 未加载的典型现场。用户点节点
+     * 只想"先选好再连接"，必须降级为记住选择（连接就绪后自动应用），而不是报
+     * 「切换失败」把入口堵死。
+     */
+    @Test
+    fun `未连接时patch失败降级为记住选择`() = runTest(mainRule.dispatcher) {
+        val vm = viewModel()
+        coEvery { serverRepository.fetchServers(any()) } returns Result.success(listOf(node("香港01", 1)))
+        // viewModel() 之后再挂内核桩：空组名列表 = 内核活着但查不到任何组
+        // （VPN 未连接时 profile 未加载的典型现场）→ patch 必失败
+        stubGroupNames(emptyList())
+        vm.loadNodes(force = true)
+        advanceUntilIdle()
+
+        vm.selectPrimary("香港01")
+        advanceUntilIdle()
+
+        assertEquals("未连接 patch 失败应记住所选节点", "香港01", vm.pendingNode.value)
+        assertNull("降级成功不应报切换失败", vm.errorMessageRes.value)
+        assertEquals(R.string.node_selection_pending, vm.speedTestTipRes.value)
+    }
+
+    /**
+     * 回归（真机截图"选的是 [直]3美国，连接后自动变成 [直]1德国"）：
+     * 连接中手动选择成功也必须持久化 pending（= 最近一次手动选择），连接就绪后
+     * MainViewModel 才能重放恢复并跳过自动测速的 selectAuto——否则每次连接都被
+     * 拉回最快节点。
+     */
+    @Test
+    fun `连接中选择成功持久化最近手动选择`() = runTest(mainRule.dispatcher) {
+        coEvery { serverRepository.fetchServers(any()) } returns Result.success(listOf(node("香港01", 1)))
+        val sessionStore = SessionStore(InMemoryPreferences())
+        val vm = viewModel(sessionStore)
+        // 连接中：内核活着 + 主组可读可 patch（stubClashGroups 置 connected=true、回读 now="香港01"）
+        stubClashGroups(members = listOf("香港01" to 42), now = "香港01")
+        vm.loadNodes(force = true)
+        advanceUntilIdle()
+
+        vm.selectPrimary("香港01")
+        advanceUntilIdle()
+
+        assertEquals("连接中选择成功应持久化最近手动选择", "香港01", sessionStore.getPendingNode())
+        assertNull("连接中选择成功不应报错", vm.errorMessageRes.value)
+        // 连接态下成功落地要发自增信号，首页据此回读出口刷新节点行/勾选
+        assertEquals("连接中选择成功应触发出口刷新信号", 1, vm.selectionAppliedTick.value)
     }
 
     @Test
@@ -174,6 +281,84 @@ class ServerViewModelTest {
 
         assertEquals(R.string.server_speed_test_failed, vm.speedTestTipRes.value)
         assertTrue("测速结束应复位", !vm.isTestingAll.value)
+    }
+
+    /**
+     * 回归（真机录屏）：点了测速一秒就结束、延迟全是未测。
+     *
+     * 1.12.6 起 startSpeedTest 按 clashAlive 分流：内核进程活着走内核真测速
+     * （经代理协议，VPN 未 RUNNING 也可用）；只有内核进程都没起才退回 TCP 握手测速。
+     * 本用例覆盖 TCP 兜底链路：失败节点必须显式写 999（超时），不能停在「未测」。
+     * 用 127.0.0.1:1（必然拒绝连接）做确定性失败现场。
+     */
+    @Test
+    fun `未连接TCP测速失败节点记超时并回填节点列表`() = runTest(mainRule.dispatcher) {
+        coEvery { serverRepository.fetchServers(any()) } returns
+            Result.success(
+                listOf(
+                    ServerNode(id = 1, name = "香港01", type = ServerType.VMESS, host = "127.0.0.1", port = 1),
+                ),
+            )
+        val vm = viewModel()
+        // viewModel() 的默认桩 clash()=null → clashAlive=false → 走 TCP 兜底分支
+        vm.ioDispatcher = kotlinx.coroutines.test.UnconfinedTestDispatcher(mainRule.dispatcher.scheduler)
+        vm.loadNodes(force = true)
+        advanceUntilIdle()
+
+        vm.startSpeedTest()
+        advanceUntilIdle()
+
+        assertEquals(
+            "TCP 握手失败必须写回超时（999），不得停在未测",
+            com.slte.app.utils.Constants.DELAY_TIMEOUT,
+            vm.data.value.nodes.first { it.name == "香港01" }.delay,
+        )
+        assertEquals("全部超时按失败提示", R.string.server_speed_test_failed, vm.speedTestTipRes.value)
+    }
+
+    /** 内核服务进程活着（VPN 未 RUNNING 也算）：测速必须走内核真延迟分支而不是 TCP 兜底。 */
+    @Test
+    fun `内核活着时测速走内核真延迟分支`() = runTest(mainRule.dispatcher) {
+        val vm = viewModel()
+        stubClashGroups(listOf("香港01" to 42), now = "香港01")
+        // stubClashGroups 把 manager.clash() 桩成非空 → clashAlive=true → 内核分支；
+        // 节点列表为空也不影响：关键是不发起 TCP 握手（host 不可达时会写 999）
+        vm.startSpeedTest()
+        advanceUntilIdle()
+
+        assertEquals(R.string.server_speed_test_done, vm.speedTestTipRes.value)
+    }
+
+    /**
+     * 未连接 TCP 测速的成功现场：Gradle 测试沙箱不出网（本地端口握手也被拒），
+     * 所以直接验证回填函数——握手成功的毫秒数要走同一条 `mergeDelaysIntoGroups`
+     * 路径写进组成员（端到端失败链路已由上一条用例覆盖）。
+     */
+    @Test
+    fun `未连接TCP测速成功时回填真实延迟`() = runTest(mainRule.dispatcher) {
+        val vm = viewModel()
+        stubGroupMembers("香港01", delay = 0)
+        vm.loadProxyGroups()
+        advanceUntilIdle()
+
+        vm.mergeDelaysIntoGroups(mapOf("香港01" to 42, "不存在节点" to 88))
+
+        val members = vm.proxyGroups.value.first().members.associate { it.name to it.delay }
+        assertEquals("握手成功的节点必须写回真实毫秒数", 42, members["香港01"])
+    }
+
+    /** 节点列表侧的合并口径：超时命中写 999、未命中保持原样（含「未测」）。 */
+    @Test
+    fun `节点列表合并超时写999未命中保持原样`() {
+        val vm = viewModel()
+        val nodes =
+            listOf(
+                NodeItem(id = 1, name = "香港01", countryCode = "HK", type = "vmess", host = "h", port = 1),
+                NodeItem(id = 2, name = "美国01", countryCode = "US", type = "vmess", host = "h", port = 2, delay = 33),
+            )
+        val merged = vm.mergeDelays(nodes, mapOf("香港01" to com.slte.app.utils.Constants.DELAY_TIMEOUT))
+        assertEquals(com.slte.app.utils.Constants.DELAY_TIMEOUT, merged.first { it.name == "香港01" }.delay)
+        assertEquals("未命中节点保持原延迟", 33, merged.first { it.name == "美国01" }.delay)
     }
 
     @Test
@@ -242,7 +427,7 @@ class ServerViewModelTest {
     // region 节点页分组折叠态（问题1：折叠态留不住 / 问题2：应默认折叠）
 
     @Test
-    fun `首次加载后所有区块默认收起（含主组卡与分流组）`() = runTest(mainRule.dispatcher) {
+    fun `首次加载后所有区块默认展开（含主组卡与分流组）`() = runTest(mainRule.dispatcher) {
         val vm = viewModel()
         stubGroupNames(listOf(PrimaryGroupName, GROUP_NAME))
 
@@ -250,16 +435,16 @@ class ServerViewModelTest {
         advanceUntilIdle()
 
         val collapsed = vm.collapsedSections.value
-        assertTrue("主组卡应默认收起", PRIMARY_SECTION_KEY in collapsed)
-        assertTrue("分流组应默认收起", GROUP_NAME in collapsed)
+        assertTrue("主组卡应默认展开", PRIMARY_SECTION_KEY !in collapsed)
+        assertTrue("分流组应默认展开", GROUP_NAME !in collapsed)
     }
 
     /**
-     * `sectionsLoaded` 类的"首次标记"若写在组列表判空之前，首次拿到空快照就会把
-     * "默认收起"永久吃掉。这里把顺序钉死。
+     * 默认展开（niuren 定制）：内核可用后**不得**写任何折叠键——旧版"首见即收起"
+     * 把测速结果藏进折叠卡里，用户表现为"点了测速看不到延迟"。
      */
     @Test
-    fun `首次快照为空不会吃掉默认收起`() = runTest(mainRule.dispatcher) {
+    fun `首次快照为空不影响默认展开，组到达后仍是全展开`() = runTest(mainRule.dispatcher) {
         val vm = viewModel()
         stubGroupNames(emptyList())
         vm.loadProxyGroups()
@@ -270,9 +455,8 @@ class ServerViewModelTest {
         vm.loadProxyGroups()
         advanceUntilIdle()
 
-        val collapsed = vm.collapsedSections.value
-        assertTrue("内核可用后默认收起仍要生效（主组卡）", PRIMARY_SECTION_KEY in collapsed)
-        assertTrue("内核可用后默认收起仍要生效（分流组）", GROUP_NAME in collapsed)
+        assertTrue("默认全展开：主组卡不得收起", PRIMARY_SECTION_KEY !in vm.collapsedSections.value)
+        assertTrue("默认全展开：分流组不得收起", GROUP_NAME !in vm.collapsedSections.value)
     }
 
     /**
@@ -347,7 +531,7 @@ class ServerViewModelTest {
     }
 
     @Test
-    fun `展开一条分流组不影响主组卡，且其余分流组被手风琴收起`() = runTest(mainRule.dispatcher) {
+    fun `收起一条分流组不影响主组卡与其余分流组`() = runTest(mainRule.dispatcher) {
         val vm = viewModel()
         stubGroupNames(listOf(PrimaryGroupName, GROUP_NAME, "🤖 AI"))
         vm.loadProxyGroups()
@@ -356,80 +540,57 @@ class ServerViewModelTest {
         vm.toggleSection(GROUP_NAME)
 
         val collapsed = vm.collapsedSections.value
-        assertTrue("被点开的分流组应展开", GROUP_NAME !in collapsed)
-        assertTrue("其余分流组应被手风琴收起", "🤖 AI" in collapsed)
-        assertTrue("主组卡不受手风琴影响", PRIMARY_SECTION_KEY in collapsed)
+        assertTrue("被点收的分流组应收起", GROUP_NAME in collapsed)
+        assertTrue("其余分流组不受影响（纯开关，无手风琴）", "🤖 AI" !in collapsed)
+        assertTrue("主组卡不受影响", PRIMARY_SECTION_KEY !in collapsed)
     }
 
     /**
-     * P1-9 回归：分组快照**还没到**就请求「全部收起」。
-     *
-     * 现场：进入节点页先调 `collapseAllSections()`，而分组是异步拉的（`loadProxyGroups()`
-     * 只点火）。旧实现此刻拿到的是空组名列表，折叠集合被写成空集 = 一条分流组都没收起
-     * ——真机取证：首次与再次进入节点页，US / HK / MO / TW 全部分流组都是展开态。
-     * 现在只置标记，由 `refreshPrimarySectionState` 在分组就绪后补应用一次。
+     * 默认展开下用户主动收起的键要**记住**（persistSections 落盘 + seen 登记不裁剪），
+     * 瞬时缺组回来后仍是用户收起的样子。
      */
     @Test
-    fun `分组未到达就请求全部收起，分组到达后补应用`() = runTest(mainRule.dispatcher) {
+    fun `用户主动收起的分流组跨组列表刷新保持收起`() = runTest(mainRule.dispatcher) {
         val vm = viewModel()
-        stubGroupNames(listOf(PrimaryGroupName, GROUP_NAME))
+        stubGroupNames(listOf(PrimaryGroupName, GROUP_NAME, "🤖 AI"))
         vm.loadProxyGroups()
         advanceUntilIdle()
 
-        // 用户展开分流组；此后这些键都已"见过"，默认收起不会再替它们兜底
         vm.toggleSection(GROUP_NAME)
-        assertTrue("前置条件：用户已展开分流组", GROUP_NAME !in vm.collapsedSections.value)
+        assertTrue("前置：用户已收起该组", GROUP_NAME in vm.collapsedSections.value)
 
-        // 内核重载中：快照为空时进入节点页
+        // 内核重载中：快照为空
         stubGroupNames(emptyList())
         vm.loadProxyGroups()
         advanceUntilIdle()
-        vm.collapseAllSections()
 
-        assertTrue(
-            "分组未到时不得把折叠集合清成空集",
-            GROUP_NAME !in vm.collapsedSections.value,
-        )
+        // 分组回来
+        stubGroupNames(listOf(PrimaryGroupName, GROUP_NAME, "🤖 AI"))
+        vm.loadProxyGroups()
+        advanceUntilIdle()
 
-        // 分组到达
+        assertTrue("用户收起的组应保持收起", GROUP_NAME in vm.collapsedSections.value)
+        assertTrue("未操作的组应保持展开", "🤖 AI" !in vm.collapsedSections.value)
+    }
+
+    /**
+     * P1-9 回归改写（默认展开语义）：分组快照**还没到**时不写任何折叠键；
+     * 分组到达后依旧是全展开——不再有"进页全部收起"（该入口已随默认展开一起删除）。
+     */
+    @Test
+    fun `分组未到达时不写折叠键，分组到达后保持默认展开`() = runTest(mainRule.dispatcher) {
+        val vm = viewModel()
+        stubGroupNames(emptyList())
+        vm.loadProxyGroups()
+        advanceUntilIdle()
+
         stubGroupNames(listOf(PrimaryGroupName, GROUP_NAME))
         vm.loadProxyGroups()
         advanceUntilIdle()
 
         assertTrue(
-            "分组到达后应补应用「全部收起」（P1-9：进入节点页后分流组仍停在展开态）",
-            GROUP_NAME in vm.collapsedSections.value,
-        )
-    }
-
-    /**
-     * 进页"全部收起"不能把主组卡的折叠键抹掉。
-     *
-     * 回归：`applyCollapseIfPossible` 曾用 `names.toSet()` 整体替换折叠集合，而
-     * [PRIMARY_SECTION_KEY] 既不在 [com.slte.app.kernel.RoutingReservedNames] 里、也不等于任何
-     * 真实组名，于是每次进节点页主组卡都被强行展开（真机取证：collapsed 集合从 8 项掉到 7 项）。
-     */
-    @Test
-    fun `进页全部收起不能抹掉主组卡的折叠键`() = runTest(mainRule.dispatcher) {
-        val vm = viewModel()
-
-        vm.loadProxyGroups()
-        vm.collapseAllSections()
-
-        // 分组未到达（内核未就绪，任何组都查不到）
-        stubGroupNames(emptyList())
-        vm.loadProxyGroups()
-        advanceUntilIdle()
-        assertTrue("分组未到达时不应落任何折叠键", vm.collapsedSections.value.isEmpty())
-
-        // 分组到达后：分流组与主组卡都要收起
-        stubGroupNames(listOf("🛑 广告拦截"))
-        vm.loadProxyGroups()
-        advanceUntilIdle()
-        assertEquals(
-            "主组卡折叠键不能被 applyCollapseIfPossible 抹掉",
-            setOf("🛑 广告拦截", PRIMARY_SECTION_KEY),
-            vm.collapsedSections.value,
+            "分组到达后不得自动写任何折叠键（默认全展开）",
+            vm.collapsedSections.value.isEmpty(),
         )
     }
 
@@ -440,7 +601,67 @@ class ServerViewModelTest {
         assertTrue("折叠键不得等于主组名", PRIMARY_SECTION_KEY != PrimaryGroupName)
     }
 
+    /** 桩出单组内核（组列表可见），供回填函数直测用例装配 `_proxyGroups`。 */
+    private fun stubGroupMembers(
+        memberName: String,
+        delay: Int,
+    ) {
+        kernelProxy.stubKernelBridge()
+        val clash = mockk<IClashManager>(relaxed = true)
+        val proxies =
+            listOf(
+                Proxy(name = memberName, title = memberName, subtitle = "", type = "vmess", delay = delay, isGroup = false),
+            )
+        every { clash.queryProxyGroupNames(any()) } returns listOf(GROUP_NAME)
+        every { clash.queryProxyGroup(any(), any()) } returns
+            ProxyGroup(type = "Selector", proxies = proxies, now = memberName)
+        val manager = mockk<KernelManager>(relaxed = true)
+        every { manager.clash() } returns clash
+        every { kernelProxy.manager } returns manager
+    }
+
     // endregion
+
+    /**
+     * 回归（真机：首页选 [直]3美国 → 日志 selectInGroup: 组成员不存在 [直]3美国）：
+     * 标准订阅是「主组(niuren) → 自动选择(URLTest) 子组」的嵌套结构，真实节点挂在子组下。
+     * 选真实节点必须把 patch 打到承载它的子组「自动选择」，而不是主组 niuren
+     * （其成员只是子组名，不含真实节点）。同时「自动选择」是 URLTest 类自动组，
+     * selectInGroup 此前只允许 Selector 会直接拒掉——这两点都修过。
+     */
+    @Test
+    fun `嵌套组主组挂子组时选真实节点patch到承载它的子组`() = runTest(mainRule.dispatcher) {
+        coEvery { serverRepository.fetchServers(any()) } returns Result.success(listOf(node("香港01", 1)))
+        val vm = viewModel() // 默认 connected=false，clashAlive 由 clash()!=null 决定=true
+        kernelProxy.stubKernelBridge()
+        val clash = mockk<IClashManager>(relaxed = true)
+        // 主组 niuren：成员是子组「自动选择」（isGroup=true），不直接含真实节点
+        val primaryProxies =
+            listOf(
+                Proxy(name = "自动选择", title = "自动选择", subtitle = "", type = "URLTest", delay = 0, isGroup = true),
+            )
+        // 「自动选择」子组：承载真实节点，类型 URLTest（自动测速组，可手动固定）
+        val autoProxies =
+            listOf(
+                Proxy(name = "[直]1德国", title = "[直]1德国", subtitle = "", type = "vmess", delay = 10, isGroup = false),
+                Proxy(name = "[直]3美国", title = "[直]3美国", subtitle = "", type = "vmess", delay = 20, isGroup = false),
+            )
+        every { clash.queryProxyGroupNames(any()) } returns listOf("niuren", "自动选择")
+        every { clash.queryProxyGroup("niuren", any()) } returns
+            ProxyGroup(type = "Selector", proxies = primaryProxies, now = "自动选择")
+        every { clash.queryProxyGroup("自动选择", any()) } returns
+            ProxyGroup(type = "URLTest", proxies = autoProxies, now = "[直]3美国")
+        val manager = mockk<KernelManager>(relaxed = true)
+        every { manager.clash() } returns clash
+        every { kernelProxy.manager } returns manager
+
+        vm.selectPrimary("[直]3美国")
+        advanceUntilIdle()
+
+        // 必须 patch 到承载真实节点的子组「自动选择」，而非主组 niuren
+        verify { clash.patchSelector("自动选择", "[直]3美国") }
+        assertNull("选择成功不应写错误消息", vm.errorMessageRes.value)
+    }
 
     /** 以桩化的内核策略组替换默认的"未就绪"内核，供测速 / 策略组用例使用。 */
     private fun stubClashGroups(
@@ -449,6 +670,8 @@ class ServerViewModelTest {
     ) {
         // 保留 safe() 直通桩，再把它挂到的 manager 换成可读策略组的内核
         kernelProxy.stubKernelBridge()
+        // 测速用例走「已连接」分支（startSpeedTest 按它分流到内核测速而非 TCP 预检）
+        every { kernelManager.connected } returns MutableStateFlow(true)
         val clash = mockk<IClashManager>(relaxed = true)
         val proxies =
             members.map { (name, delay) ->
@@ -500,18 +723,23 @@ class ServerViewModelTest {
      * 真机取证链：95 图（冷启动，全部收起）→ 96 图（用户展开主组）→ **97 图（重启 App 再进
      * 节点页，又变回全部收起）**。"切走再切回"此前已修，唯独进程重启这一维度没保住。
      */
+    /**
+     * 冷启动（niuren 定制，默认展开语义）：**不恢复**旧收起集合——旧版本落盘的是
+     * "首见即收起 + 进页全部收起"的默认态，照单全收会让升级后首启仍全收起。
+     * "已见过"集合照常恢复（syncCollapsedSections 靠它区分首见）。
+     */
     @Test
-    fun `冷启动后从持久化恢复用户收起的分组`() = runTest(mainRule.dispatcher) {
+    fun `冷启动后默认全展开，不恢复旧版落盘的收起集合`() = runTest(mainRule.dispatcher) {
         every { subscribeRepository.getCachedUserInfo() } returns
             User(id = "1", displayName = ACCOUNT, email = ACCOUNT, authData = "auth", subscribeToken = "sub")
-        // 上一次会话：用户把主组卡收起了，且这些键都已经"见过"
+        // 上一次会话（旧版本）：整页收起被落盘
         nodesSectionStore.save(ACCOUNT, setOf(PRIMARY_SECTION_KEY), setOf(PRIMARY_SECTION_KEY))
 
         val vm = viewModel()
 
         assertTrue(
-            "重启后应恢复用户收起的主组卡，而不是被首见逻辑重新判成未见过",
-            PRIMARY_SECTION_KEY in vm.collapsedSections.value,
+            "升级后冷启动应默认全展开，不照搬旧版落盘的全收起",
+            vm.collapsedSections.value.isEmpty(),
         )
     }
 
@@ -664,7 +892,74 @@ class ServerViewModelTest {
         every { kernelProxy.manager } returns mockk(relaxed = true)
         every { subscribeRepository.getCachedSubscribeInfo() } returns null
         every { kernelManager.profileLoaded } returns profileLoadedFlow
-        return ServerViewModel(serverRepository, subscribeRepository, kernelProxy, kernelManager, nodesSectionStore)
+        // connected 给真流且置 true：startSpeedTest 按 connected 分流，false 会走 TCP 预检分支
+        // （不经过 safe("speedTestProgressive")，取消注入根本不会发生）
+        every { kernelManager.connected } returns MutableStateFlow(true)
+        return ServerViewModel(
+            serverRepository,
+            subscribeRepository,
+            kernelProxy,
+            kernelManager,
+            nodesSectionStore,
+            SessionStore(InMemoryPreferences()),
+        )
+    }
+
+    // endregion
+
+    // region 内核延迟 key → 订阅名映射（"点测速跑完了但整页停在未测"回归）
+
+    /**
+     * 内核测速结果的 key 是内核节点名（标准订阅带国旗前缀），订阅列表是原始名。
+     * 旧实现直接 `delays[node.name]` 精确取值永远取不到——真机表现就是
+     * "首页面板点测速跑完一整轮，所有节点仍显示「未测」"。
+     */
+    @Test
+    fun `内核延迟key映射回订阅名`() = runTest(mainRule.dispatcher) {
+        val vm = viewModel()
+        val mapped =
+            vm.remapDelayKeysToPanelNames(
+                mapOf("🇩🇪 [直]1德国" to 210, "🇺🇸 [直]3美国" to 201),
+                listOf("[直]1德国", "[直]2德国", "[直]3美国"),
+            )
+        assertEquals(210, mapped["[直]1德国"])
+        assertEquals(201, mapped["[直]3美国"])
+        assertEquals(2, mapped.size)
+    }
+
+    /** `[直]` 与 `[CF]` 只差前导标签：映射必须保留标签，不得互相折叠。 */
+    @Test
+    fun `映射保留直与CF标签不互相折叠`() = runTest(mainRule.dispatcher) {
+        val vm = viewModel()
+        val mapped =
+            vm.remapDelayKeysToPanelNames(
+                mapOf("🇩🇪 [CF]1德国" to 999),
+                listOf("[直]1德国", "[CF]1德国"),
+            )
+        assertEquals(999, mapped["[CF]1德国"])
+        assertEquals(1, mapped.size)
+        assertTrue(!mapped.containsKey("[直]1德国"))
+    }
+
+    /** 映射不上的 key 保留原样（调用方按订阅名取不到就当没测过，不丢数据）。 */
+    @Test
+    fun `映射不上的key保留原样`() = runTest(mainRule.dispatcher) {
+        val vm = viewModel()
+        val mapped =
+            vm.remapDelayKeysToPanelNames(
+                mapOf("未知节点" to 88),
+                listOf("[直]1德国"),
+            )
+        assertEquals(88, mapped["未知节点"])
+    }
+
+    /** 空表 / 空订阅名直接原样返回，不做多余拷贝。 */
+    @Test
+    fun `空输入原样返回`() = runTest(mainRule.dispatcher) {
+        val vm = viewModel()
+        val delays = mapOf("a" to 1)
+        assertEquals(delays, vm.remapDelayKeysToPanelNames(delays, emptyList()))
+        assertTrue(vm.remapDelayKeysToPanelNames(emptyMap(), listOf("a")).isEmpty())
     }
 
     // endregion

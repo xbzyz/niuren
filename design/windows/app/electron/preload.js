@@ -13,6 +13,10 @@ const CH_EVENT = 'polaris:event:';
 
 contextBridge.exposeInMainWorld('polaris', {
   isElectron: true,
+  platform: process.platform,
+
+  /** 是否为 macOS（渲染层据此切原生交通灯 / 自绘按钮） */
+  isMac: process.platform === 'darwin',
 
   /** 调用后端命令；后端抛错时 Promise reject */
   invoke: (cmd, args) => ipcRenderer.invoke(CH_INVOKE, cmd, args || {}),

@@ -3,7 +3,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { app, BrowserWindow, Menu, Tray, nativeImage, shell, dialog, ipcMain } = require('electron');
+const { app, BrowserWindow, Menu, Tray, nativeImage, shell, dialog, ipcMain, session } = require('electron');
 
 const paths = require('./paths');
 const log = require('./logger');
@@ -61,7 +61,7 @@ try {
   updater.cleanStaleRename();
 } catch (e) { /* 恢复/清理失败都不影响启动 */ }
 
-// 分流规则 + 地理库统一刷新（P1）：来源只有 ipevel/polaris-rules 一处，
+// 分流规则 + 地理库统一刷新（P1）：来源只有 xbzyz/niuren-rules 一处，
 // 规则清单 14 + geo 3 份，每 12 小时对一次上游；有变化会在内核在线时重启内核生效。
 // 两份都随包内置，所以这一步只是「跟上上游」，失败也不影响启动与连接。
 // 不 await：启动路径不能等网络。
@@ -95,6 +95,15 @@ const { register: registerCommands } = require('./ipc');
 const { buildTray, updateTray } = require('./tray');
 
 const pkg = require('../package.json');
+
+// macOS：禁用 Chromium 的钥匙串访问（os_crypt / safeStorage）。
+// 未公证的 ad-hoc 签名应用每次启动读 "XXX Safe Storage" 都会弹「要使用钥匙串」
+// 密码框，而且这个同步调用会卡住主进程——拒绝后窗口白屏。改用内存 mock 钥匙串后
+// 完全不碰 Keychain，弹窗消失；代价是 safeStorage 的密钥不跨启动持久，
+// 所以 mac 上的凭据加密改走本地密钥文件（见 panel/credentials.js）。
+if (process.platform === 'darwin') {
+  app.commandLine.appendSwitch('use-mock-keychain');
+}
 
 // 模块级可变状态。**必须声明在所有 `return` 分支之前**：
 // 下面 `--updtest` 分支会在模块顶层 return，它之后的
@@ -156,12 +165,17 @@ app.on('second-instance', () => {
 
 /* ---------- 窗口 ---------- */
 function createWindow() {
+  // Windows/Linux 用 frame:false 自绘标题栏（右上角自绘控制按钮）。
+  // macOS 用 titleBarStyle:'hiddenInset' 保留原生红黄绿交通灯在左上角——
+  // frame:false 会把它们整片删掉，导致顶栏左上空白、只能靠右上角自绘按钮
+  // （不符合 mac 习惯，用户反馈"这里没有 × 和 −"）。
+  const isMac = process.platform === 'darwin';
   const win = new BrowserWindow({
     width: 1400,
     height: 880,
     minWidth: 1100,
     minHeight: 700,
-    frame: false,            // 自绘标题栏
+    ...(isMac ? { titleBarStyle: 'hiddenInset' } : { frame: false }),
     show: false,
     backgroundColor: '#F5F5F7',
     icon: path.join(__dirname, '..', 'src', 'assets', 'p-icon.png'),
@@ -249,8 +263,19 @@ function showMain() {
 app.whenReady().then(async () => {
   paths.ensureAll();
   store.set('version', pkg.version);
+
+  // 客服挂件（chat.niurend.xyz）的实时通道是 wss://chat.niurend.xyz/ws。
+  // 连上 VPN 时本机默认会被设成系统代理（store.sys_proxy=true，store.js 默认开），
+  // 渲染层所有请求都先走本地 mixed-port 内核；内核对 chat.niurend.xyz 没有透传规则时会
+  // 把连接挂起，浮窗就永远停在「连接中…」（用户第 15 轮报的 bug）。
+  // 让渲染层对 chat.niurend.xyz 直连（走用户正常网络，和浏览器里能连上是一个道理），
+  // 其余流量仍走系统代理（VPN）。mode:'system' 兼容「未开系统代理」时直接走直连。
+  session.defaultSession.setProxy({
+    mode: 'system',
+    proxyBypassRules: 'chat.niurend.xyz;*.chat.niurend.xyz',
+  }).catch((e) => log.warn('客服域名代理绕过设置失败：' + (e && e.message)));
   log.info('='.repeat(60));
-  log.info(`Polaris ${pkg.version} start | packaged=${app.isPackaged} portable=${paths.isPortable()}`);
+  log.info(`niuren ${pkg.version} start | packaged=${app.isPackaged} installed=${paths.isInstalled()} portable=${paths.isPortable()}`);
   log.info(`root=${paths.root()} core=${paths.core()}`);
 
   // 登录态跨重启：凭据落在 data/credentials.dat（DPAPI 加密，只有本用户能解），

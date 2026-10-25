@@ -230,7 +230,7 @@
     `🐱 GitHub` / `🌏 Google Play` / `🌏 Google` / `Ⓜ️ 微软Bing` / `Ⓜ️ 微软服务`——旧开关状态
     无处安放，硬映射会把「我关掉 Google」变成「我关掉整个穿墙」。
   - `app/src/main/assets/routing/providers/`：删掉 10 份 `acl_*.yaml`，换入 15 份 `<键>.yaml`
-    （内容为 `ipevel/polaris-rules` 的 `dist/rules/<键>.list` 字节）。路径契约两端一致：
+    （内容为 `xbzyz/niuren-rules` 的 `dist/rules/<键>.list` 字节）。路径契约两端一致：
     Go 侧 `FileExt() == ".yaml"` + `providerSubPath == "polaris-rules"`，Windows 侧
     `seedPath == polaris-rules/<键>.yaml`。
   - `app/src/main/java/com/slte/app/kernel/RoutingGroups.kt`：Kotlin 镜像同步为 12 组、别名表 12 条；
@@ -310,7 +310,7 @@
   已修：`registerLocalProviders` 收齐 `map[string]P.RuleProvider` 后调
   `T.UpdateRules(nil, nil, providers)`，并断言 `len(T.RuleProviders())` 相符。
 - 变更：
-  1. 规则仓库侧（`ipevel/polaris-rules` `b0cf02b`）：`tools/manifest.mjs` 的 onedrive 条目
+  1. 规则仓库侧（`xbzyz/niuren-rules` `b0cf02b`）：`tools/manifest.mjs` 的 onedrive 条目
      删掉 `alsoRuleset: ['Microsoft']`，`dist/rules/onedrive.list` 92 条 → **17 条**
      （只剩 `Clash/OneDrive.list` 本体）。选白名单而非事后加排除项：上游明天新增什么都不会漏进来。
   2. 随包种子 `app/src/main/assets/routing/providers/onedrive.yaml` 换成该 17 条

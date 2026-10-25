@@ -28,7 +28,7 @@
 > `electron/` 里只有 `core/remote.js:64` 一处**读**、零处**写**，`store.js` 的 DEFAULTS 里也没这个键，
 > 于是 `remote.load()` 恒返回空配置、`updateInfo().has_update` 恒 false，**红点永远不会亮**，
 > 点「前往下载」永远得到「未配置更新地址」。对照安卓端才发现真实口径：
-> `data/update/AppUpdateChecker.kt` **直接查 GitHub Releases API**（`repos/ipevel/polaris/releases/latest`
+> `data/update/AppUpdateChecker.kt` **直接查 GitHub Releases API**（`repos/xbzyz/niuren/releases/latest`
 > + `Accept: application/vnd.github+json`，取第一个 `.apk` 资产），**根本不读 `config/remote.json`** ——
 > 那三个 `update_*` 字段对安卓是遗留未用字段，所以"往 remote.json 里加 Windows 字段"从来不是接通方式。
 > 修法：新增 `electron/core/release.js` 走同一套 API（资产优先 `Polaris-portable-*.zip`，
@@ -261,7 +261,7 @@ sha256 = 1f795db75832fe89ece66f0cbab7574ea4baf7eaaa2e40853c32ae89b751caad
   sha256 6427af345965b07a7a11a0ac80b40f7f3a20fb27928affa12416421c71887e4e）
 ```
 
-已发布：<https://github.com/ipevel/polaris/releases/tag/v1.10.0>（与安卓的 `Polaris-1.10.0.apk` 同一个 Release，
+已发布：<https://github.com/xbzyz/niuren/releases/tag/v1.10.0>（与安卓的 `Polaris-1.10.0.apk` 同一个 Release，
 Windows 侧源码在 `design/windows/`，主分支 `main` 里也同步一份）。
 
 解压即用：不装运行时、不写注册表、不写 `%APPDATA%`。**成品包实测**（直接跑 `dist/win-unpacked/Polaris.exe`）：
@@ -425,7 +425,7 @@ Windows 侧源码在 `design/windows/`，主分支 `main` 里也同步一份）�
 | 分流落点正确性 | ✅ | 19 个启用组各挑规则集里的真域名真发一次请求，从内核日志核对落点：18 个落自己组，1 个被**同出口**的组先命中（只是归类不同）；**没有任何"该直连却走了代理"的组**。写断言的判据是**出口语义**而不是组名（见 D-11） |
 | TUN 模式实机 | ❌ | 代码路径完整（含 UAC 提权、网卡收尾、残留清理），但会临时接管网络栈，未在真机跑 |
 | 面板活跃会话管理（踢设备） | ❌ | 需要新功能：**两端都没有这个接口**（面板侧也没有），不是「UI 未做」 |
-| 应用内更新源（从哪知道有新版本） | ✅ | 与安卓端同一套口径：**主来源 = GitHub Releases API**（`repos/ipevel/polaris/releases/latest`，资产优先 `Polaris-portable-*.zip`，所以 Windows 拿到便携包、安卓拿 APK），发完版自动发现，不用改配置；远程配置（`remote_config_urls`，默认 GitHub raw 的 `config/remote.json`）作为**可覆盖的镜像来源**，明确给了 `update_windows_url` 时以它为准；`release_api_base` 可换基址（自建 / 企业镜像）；两个来源**并发**查再择优，任一失败都不影响另一个；查到的版本号与地址都落盘（`update_latest` / `update_url`），重启后红点与「前往下载」都还在（第 14 轮接通，见 D-16/A-49） |
+| 应用内更新源（从哪知道有新版本） | ✅ | 与安卓端同一套口径：**主来源 = GitHub Releases API**（`repos/xbzyz/niuren/releases/latest`，资产优先 `Polaris-portable-*.zip`，所以 Windows 拿到便携包、安卓拿 APK），发完版自动发现，不用改配置；远程配置（`remote_config_urls`，默认 GitHub raw 的 `config/remote.json`）作为**可覆盖的镜像来源**，明确给了 `update_windows_url` 时以它为准；`release_api_base` 可换基址（自建 / 企业镜像）；两个来源**并发**查再择优，任一失败都不影响另一个；查到的版本号与地址都落盘（`update_latest` / `update_url`），重启后红点与「前往下载」都还在（第 14 轮接通，见 D-16/A-49） |
 | 自动更新（下载并替换自身） | ✅ | 便携版可自装：更新包地址（GitHub Release 资产或远程配置的 `update_windows_url`）指向 zip → 下载 → 解压到 `data/update/staging` → 退出前写 `apply-update.cmd` 覆盖安装目录并重启。装在 `Program Files`/只读盘时自动退回「前往下载」；不做增量、不校验签名、失败无回滚（只覆盖不删除，用户数据与旧文件都还在，可手动重下） |
 | 自定义规则集（用户自己写规则） | ✅ | 分流页「自定义分流组」：一行一条 `类型,内容`，出口由程序补；白名单校验（含拒绝 `MATCH`）、IP 类自动补 `no-resolve`；最多 20 组 / 每组 200 条；**自定义规则排在内置分类与订阅规则之前**（否则永远轮不到）；与订阅策略组同名时复用、与内置同名时拒绝 |
 | 分流组排序 | ✅ | 分流页每个组（内置 + 自定义）都能**按住手柄拖动**排序，落 `routing_order` / `custom_rulesets` 顺序；内置与自定义不互相跨越；「恢复默认」只还原内置开关与顺序，不动自定义组（2026-10-10 按用户要求把 ↑↓ 按钮换成拖动，见 A-28） |
@@ -2127,12 +2127,12 @@ update_available: cmpVersion(s.update_latest, s.version) > 0,
 零处写**，`store.js` 的 DEFAULTS 里也没有这个键 —— `remote.load()` 恒返回空配置，
 `updateInfo().has_update` 恒 false。`download_url` 同样是"从来没人写"的键。
 对照安卓端才发现真实口径：`app/src/main/java/com/slte/app/data/update/AppUpdateChecker.kt`
-**直接查 GitHub Releases API**（`repos/ipevel/polaris/releases/latest` + `Accept: application/vnd.github+json`，
+**直接查 GitHub Releases API**（`repos/xbzyz/niuren/releases/latest` + `Accept: application/vnd.github+json`，
 取第一个 `.apk` 资产），**根本不读 `config/remote.json`** —— 那三个 `update_*` 字段对安卓是遗留未用字段。
 修法：新增 `electron/core/release.js`（同一套 API，资产优先 `/^Polaris-portable-.*\.zip$/i`），
 `check_update` **并发**查「远程配置」与「GitHub」两个来源再择优 —— 远程配置明确给了 Windows 地址时
 以它为准（可指向镜像 / 自建 CDN），否则用 GitHub；`remote_config_urls` 补上默认值
-（`https://raw.githubusercontent.com/ipevel/polaris/main/config/remote.json`），新增 `release_api_base` 可换基址；
+（`https://raw.githubusercontent.com/xbzyz/niuren/main/config/remote.json`），新增 `release_api_base` 可换基址；
 查到的**地址**也落盘（`update_url`），否则重启后（红点还在）点「前往下载」又会说没有地址。
 两个来源并发而不是串行：远程配置自带 8 秒超时，串行会让"检查更新"白等。
 实测：本机 `raw.githubusercontent.com` 是 `read ECONNRESET`（被墙），GitHub API 697 ms 返回 200 ——
@@ -2659,7 +2659,7 @@ W Mihomo: parse classical rule [URL-REGEX,^https?://int[\w-\.]+iqiyi\.com] error
 脚本 `E:\AI\drop_url_regex.py`，按行首 `URL-REGEX` 过滤、`io.open(..., newline='')` 保住原行尾（安卓 LF / Windows CRLF）。
 
 **后续（2026-10-14，A-61 之后，这条已成历史做法）**：规则来源改成统一从
-`ipevel/polaris-rules` 懒更新之后，这一刀改在**源头**做了 —— `tools/sync.mjs` 里
+`xbzyz/niuren-rules` 懒更新之后，这一刀改在**源头**做了 —— `tools/sync.mjs` 里
 `UNSUPPORTED_RULE_TYPES = new Set(['URL-REGEX'])` 在合并阶段丢弃，并在人读形态的表头
 如实记账（`丢弃内核不认的 URL-REGEX N 条`）。这样两端、以及两端的老用户，
 下次 12 小时懒更新就自动拿到干净的清单，**不需要再逐端跑脚本**：
@@ -3405,7 +3405,7 @@ routing-sync / **flags(11)** / **flag-row(15)**。`FLAG_CODES` 与
 两套的更新节奏、校验方式、失败处理各不相同，用户看到的却是「一个分流功能」。
 现在合成一套：**全部随同一个仓库走，全部同一条 12 小时节拍，本地种子只是首启的兜底。**
 
-### 仓库与产物（`ipevel/polaris-rules`）
+### 仓库与产物（`xbzyz/niuren-rules`）
 
 - 上游两条线：ACL4SSR 的分流规则 + MetaCubeX/meta-rules-dat 的 geodata，各自 15 分钟探测，
   有变化才同步（没有变化就等下一次，不产生空提交）。
@@ -3417,8 +3417,8 @@ routing-sync / **flags(11)** / **flag-row(15)**。`FLAG_CODES` 与
 
 ### 客户端（`electron/core/rulesync.js`）
 
-- **双源**：`cdn.jsdelivr.net/gh/ipevel/polaris-rules@main` → 失败退
-  `raw.githubusercontent.com/ipevel/polaris-rules/main`。`POLARIS_RULES_BASE` 可强制单源
+- **双源**：`cdn.jsdelivr.net/gh/xbzyz/niuren-rules@main` → 失败退
+  `raw.githubusercontent.com/xbzyz/niuren-rules/main`。`POLARIS_RULES_BASE` 可强制单源
   （自测就是指向本地 HTTP 服务跑的），`POLARIS_RULES_NO_FALLBACK=1` 关掉回退。
 - **懒更新三步**：① `isFresh(dir)` —— 文件齐且 marker 未过期（12h）→ **一个请求都不发**；
   ② 拉 `latest.json`，`version` 与本地 marker 相同 → **只更新时间戳，零下载**；
@@ -3458,7 +3458,7 @@ routing-sync / **flags(11)** / **flag-row(15)**。`FLAG_CODES` 与
 ### 随包 geodata 落后两个多月（规划 §6.2）
 
 三份随包 geodata 的 git blob 停在 2026-08-09（`6fcafbf` 开源那次），文件时间戳停在 09-19。
-`ipevel/polaris-rules` 的 `geo/` 是活的（上游 MetaCubeX/meta-rules-dat，每天更新），
+`xbzyz/niuren-rules` 的 `geo/` 是活的（上游 MetaCubeX/meta-rules-dat，每天更新），
 且它的 `latest.json` 里每个文件自带 sha256/字节数 —— 仓库与清单自洽。
 
 | 文件 | 旧（随包） | 新（仓库 v4） |
@@ -3486,7 +3486,7 @@ assets（`app/src/main/assets/`）拷到 `resources/geo/`，拷不动才去下�
 
 钉死「只有一套」：运行期代码（`electron/`、`src/js/`，排除 `geosync.js` 自身）
 **剥掉整行注释后**不得出现 `bett-rules` / `appshubcc` / `GeoLite2-ASN`；
-`rulesync.js` 与 `rulesets.js` 必须指向 `ipevel/polaris-rules`；
+`rulesync.js` 与 `rulesets.js` 必须指向 `xbzyz/niuren-rules`；
 不得有任何运行期模块 require geosync；`resources/rules/` 恰好是 `PROVIDERS` 的 15 个
 `<键>.yaml` 且无 `acl_*.yaml` 残留；geodata 三份在位且非空。
 
@@ -3514,7 +3514,7 @@ bett-rules 拉」来说明改动原因，那是解释不是引用。已做阴性
 
 | 源 | latest.json | VERSION | 清单 ↔ 该源自己的文件 |
 |---|---|---|---|
-| `cdn.jsdelivr.net/gh/ipevel/polaris-rules@main` | 10224 B，`Age: 15059`（4.2 小时前） | **2**（34 文件） | `streaming.list` **✗ 不符**：声明 `d00842a5…`，实测 `414dfbd1…` |
+| `cdn.jsdelivr.net/gh/xbzyz/niuren-rules@main` | 10224 B，`Age: 15059`（4.2 小时前） | **2**（34 文件） | `streaming.list` **✗ 不符**：声明 `d00842a5…`，实测 `414dfbd1…` |
 | `…@b3729fce`（钉住） | 10862 B，无 `Age`（回源） | **4**（36 文件） | 三份全 ✓ |
 | `raw.githubusercontent.com/…/main`（第二源） | 10862 B | 4 | 三份全 ✓ |
 
@@ -3648,7 +3648,7 @@ Windows 侧规则刷新走 `127.0.0.1:<mixed_port>` 的 CONNECT 隧道（`getVia
 
 ### 2) 随包种子的行尾：包内 CRLF、上游 dist 是 LF（别拿逐字节当门禁）
 
-v1.11.5 便携包里 15 份种子与 `ipevel/polaris-rules` 的 `dist/rules/*.list`
+v1.11.5 便携包里 15 份种子与 `xbzyz/niuren-rules` 的 `dist/rules/*.list`
 **逐字节不一致（0/15）**，但**行尾归一后 15/15 完全一致**（逐份行数也相同）：
 
 | 事实 | 值 |

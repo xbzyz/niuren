@@ -141,6 +141,33 @@ class SessionStoreTest {
         assertEquals("归属账号归一化为小写去空格", "user@example.com", store.cacheOwner())
     }
 
+    /**
+     * 登出 / 换账号必须一并清掉「预选节点」与「连接计时起点」。
+     *
+     * 少了这一步，A 账号选的节点名会残留给 B 账号：新账号连接时解析不到该节点 →
+     * 兜底 selectAuto，用户看到"换号登录后节点乱跳、选的跟用的不一致"。
+     */
+    @Test
+    fun `clear 清掉预选节点与连接起点`() {
+        store.save(authData = "jwt", email = "e@x.com", subscribeToken = "sub")
+        store.savePendingNode("[直]3美国")
+        store.saveConnectedSince(12_345L)
+
+        store.clear()
+
+        assertNull("登出后不得残留上一个账号的预选节点", store.getPendingNode())
+        assertEquals(0L, store.getConnectedSince())
+    }
+
+    @Test
+    fun `clearDataCache 清掉预选节点`() {
+        store.savePendingNode("[直]3美国")
+
+        store.clearDataCache()
+
+        assertNull("换账号清缓存时必须带走预选节点", store.getPendingNode())
+    }
+
     @Test
     fun `清数据缓存保留归属账号 登出全清才移除`() {
         store.save(authData = "jwt", email = "a@b.c", subscribeToken = "sub")

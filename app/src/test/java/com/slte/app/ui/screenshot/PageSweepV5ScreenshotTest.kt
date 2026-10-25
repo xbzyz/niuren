@@ -182,7 +182,6 @@ class PageSweepV5ScreenshotTest {
             onTestGroup = {},
             onStartSpeedTest = {},
             onRefreshSubscription = {},
-            onRoutingRules = {},
             onNavSelect = {},
             collapsedSections = collapsedSections,
         )

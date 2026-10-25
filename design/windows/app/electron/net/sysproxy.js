@@ -215,3 +215,65 @@ function readSystemProxy() {
 }
 
 module.exports = { enable, disable, snapshot, restore, broadcast, bypassList, parseProxyServer, readSystemProxy };
+'use strict';
+/* ============================================================
+ * niuren macOS 适配补丁（追加在各 Windows 网络模块末尾）
+ * process.platform === 'darwin' 时覆盖 module.exports：
+ *  - sysproxy：用 networksetup 实现真实的 macOS 系统代理
+ *  - 其余（wintun/PowerShell/注册表相关）：导出安全桩
+ * ============================================================ */
+if (process.platform === 'darwin') {
+  const { execFileSync } = require('child_process');
+
+  function macServices() {
+    try {
+      const out = execFileSync('networksetup', ['-listallnetworkservices'], { encoding: 'utf8' });
+      return out.split('\n').slice(1).map((s) => s.trim())
+        .filter((s) => s && !s.startsWith('*') && !s.startsWith('An asterisk'));
+    } catch (_) { return []; }
+  }
+
+  function macEnable(host, port /* , extraDomains */) {
+    const before = { services: [], host, port };
+    const services = macServices();
+    for (const svc of services) {
+      try {
+        before.services.push({
+          svc,
+          web: execFileSync('networksetup', ['-getwebproxy', svc], { encoding: 'utf8' }),
+          sec: execFileSync('networksetup', ['-getsecurewebproxy', svc], { encoding: 'utf8' }),
+        });
+      } catch (_) { /* 服务不可查询则跳过 */ }
+    }
+    for (const svc of services) {
+      try {
+        execFileSync('networksetup', ['-setwebproxy', svc, host, String(port)], { stdio: 'ignore' });
+        execFileSync('networksetup', ['-setsecurewebproxy', svc, host, String(port)], { stdio: 'ignore' });
+      } catch (e) {
+        try { require('../logger').warn('networksetup 设置失败（' + svc + '）：' + (e && e.message)); } catch (_) {}
+      }
+    }
+    return before;
+  }
+
+  function macDisable(before) {
+    const services = (before && Array.isArray(before.services)) ? before.services.map((s) => s.svc) : macServices();
+    for (const svc of services) {
+      try {
+        execFileSync('networksetup', ['-setwebproxystate', svc, 'off'], { stdio: 'ignore' });
+        execFileSync('networksetup', ['-setsecurewebproxystate', svc, 'off'], { stdio: 'ignore' });
+      } catch (_) { /* 尽力而为 */ }
+    }
+  }
+
+  module.exports = {
+    enable: macEnable,
+    disable: macDisable,
+    snapshot: () => null,
+    restore: () => {},
+    broadcast: () => {},
+    bypassList: (e) => e || [],
+    parseProxyServer: () => null,
+    readSystemProxy: () => null,
+  };
+}

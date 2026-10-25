@@ -2,14 +2,25 @@
 /**
  * 路径解析 —— 便携模式的单点真相。
  *
+ * 两种发行形态，数据目录不同：
+ *   · 便携版（zip，解压即用）：<exe 所在目录>/data
+ *   · 安装版（NSIS 安装包）：%APPDATA%/niuren/data
+ *     判别依据：包内 resources/installed.flag（只有安装版会带这个文件）
+ *
  * 优先级：
- *   1. 打包后：<exe 所在目录>/data            （绿色、可整目录拷走、U 盘可跑）
- *   2. 打包后但目录只读：%APPDATA%/Polaris （U 盘只读等降级场景）
- *   3. 开发态：<app>/.devdata
+ *   1. 安装版：%APPDATA%/niuren            （卸载/重装不丢配置，Program Files 也没权限问题）
+ *   2. 便携版且目录可写：<exe 所在目录>/data （绿色、可整目录拷走、U 盘可跑）
+ *   3. 打包后但目录只读：%APPDATA%/Polaris （U 盘只读等降级场景）
+ *   4. 开发态：<app>/.devdata
  *
  * 本模块刻意不强依赖 electron：core/ 与 util/ 下的逻辑要能在纯 Node 下跑自检，
  * 所以 require 失败时退到一个基于 __dirname 的开发态根目录。
  */
+
+/** 安装版标记：`<exe 目录>/resources/installed.flag`，只有 NSIS 安装包会带 */
+const INSTALLED_FLAG_REL = ['resources', 'installed.flag'];
+/** 安装版的数据目录名（挂在 app.getPath('appData') 下） */
+const INSTALLED_DATA_DIR = 'niuren';
 
 const fs = require('fs');
 const path = require('path');
@@ -37,6 +48,28 @@ function canWrite(dir) {
 
 let cachedRoot = null;
 let portable = false;
+let installWritableCache = null;
+
+/** 打包后的 exe 所在目录（安装版 = 安装目录根，便携版 = 解压目录根） */
+function exeDir() {
+  return IS_PACKAGED ? path.dirname(electronApp.getPath('exe')) : '';
+}
+
+/** 是不是安装版（包里带 installed.flag） */
+function isInstalled() {
+  if (!IS_PACKAGED) return false;
+  try { return fs.existsSync(path.join(exeDir(), ...INSTALLED_FLAG_REL)); } catch (_) { return false; }
+}
+
+/** 安装目录能否写入 —— 自更新的前提（便携版与安装版都按这个判，不再复用 portable） */
+function installWritable() {
+  if (installWritableCache !== null) return installWritableCache;
+  if (!IS_PACKAGED) { installWritableCache = false; return false; }
+  const probe = path.join(exeDir(), '.polaris-write-probe');
+  installWritableCache = canWrite(probe);
+  try { fs.rmSync(probe, { recursive: true, force: true }); } catch (_) {}
+  return installWritableCache;
+}
 
 function root() {
   if (cachedRoot) return cachedRoot;
@@ -55,11 +88,17 @@ function root() {
   }
 
   if (IS_PACKAGED) {
-    const exeDir = path.dirname(electronApp.getPath('exe'));
-    const probe = path.join(exeDir, '.polaris-write-probe');
+    // 安装版：数据一律落在 %APPDATA%/niuren，跟安装目录解耦
+    if (isInstalled()) {
+      cachedRoot = path.join(electronApp.getPath('appData'), INSTALLED_DATA_DIR);
+      portable = false;
+      return cachedRoot;
+    }
+    const exeDirPath = exeDir();
+    const probe = path.join(exeDirPath, '.polaris-write-probe');
     if (canWrite(probe)) {
       try { fs.rmSync(probe, { recursive: true, force: true }); } catch (_) {}
-      cachedRoot = exeDir;
+      cachedRoot = exeDirPath;
       portable = true;
     } else {
       cachedRoot = path.join(electronApp.getPath('appData'), 'Polaris');
@@ -79,6 +118,10 @@ const paths = {
   isElectron: IS_ELECTRON,
   isPackaged: IS_PACKAGED,
   isPortable: () => portable,
+  /** 安装版（NSIS 装出来的）：数据在 %APPDATA%/niuren */
+  isInstalled,
+  /** 安装目录（也就是 exe 所在目录）能不能写 —— 自更新按这个判，与数据目录无关 */
+  installWritable,
   data: () => path.join(root(), 'data'),
   logs: () => path.join(root(), 'data', 'logs'),
   profiles: () => path.join(root(), 'data', 'profiles'),

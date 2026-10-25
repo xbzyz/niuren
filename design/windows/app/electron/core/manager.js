@@ -24,7 +24,7 @@ const rulesets = require('./rulesets');
 const region = require('./region');
 const traffic = require('./traffic');
 // geosync.js（旧的第三方 geodata 源）**故意不再 require**：规则与 geodata 现在只有
-// rulesync 一条路、`ipevel/polaris-rules` 一个源。那个模块留着只为 fetch-geo.py 的清单定义。
+// rulesync 一条路、`xbzyz/niuren-rules` 一个源。那个模块留着只为 fetch-geo.py 的清单定义。
 const rulesync = require('./rulesync');
 const fmt = require('../util/format');
 
@@ -62,7 +62,14 @@ const S = {
   listeners: new Set(),        // 状态推送订阅者
 };
 
-function coreExe() { return path.join(paths.core(), 'mihomo.exe'); }
+function coreExeName() { return process.platform === 'darwin' ? 'mihomo' : 'mihomo.exe'; }
+function coreExe() {
+  const p = path.join(paths.core(), coreExeName());
+  if (process.platform === 'darwin') {
+    try { fs.chmodSync(p, 0o755); } catch (_) {}
+  }
+  return p;
+}
 function configFile() { return paths.file('config.yaml'); }
 function subscribeFile() { return path.join(paths.profiles(), 'subscribe.yaml'); }
 
@@ -116,6 +123,8 @@ function prepareConfig(opts = {}) {
     directDomains: S.directDomains,
     routing: {
       // 总开关：默认开 —— 与安卓端一致，屏蔽面板下发的分流方案、只用本地内置方案
+      // 总开关：默认关（第33轮起 store.js 默认 false），即用面板自带分流；
+      // 旧注释「默认开」已过时。仅当用户在分流页手动打开本地方案时为 true。
       on: store.get('routing_on') !== false,
       enabled: store.get('routing_rules'),
       order: store.get('routing_order'),
@@ -140,7 +149,7 @@ function prepareConfig(opts = {}) {
  * 内置分流规则兜底：**缺什么补什么，已有的不动**。
  *
  * 2026-10-13 改法（P1）。以前这里是「每次启动都无条件覆盖」，理由是"内核只读不写，
- * 覆盖才能让随包修正过的清单立刻生效"。规则改成**运行期从 ipevel/polaris-rules 同步**
+ * 覆盖才能让随包修正过的清单立刻生效"。规则改成**运行期从 xbzyz/niuren-rules 同步**
  * 之后那条理由反了过来：无条件覆盖会把刚同步下来的新版打回随包那份旧的。
  * 现在随包那份退化成首次安装 / 断网时的兜底，真正的更新与版本推进归
  * `refreshRules()`（electron/core/rulesync.js）。
@@ -223,7 +232,7 @@ function ensureGeodata() {
  * 分流规则 + 地理库统一刷新（用户 2026-10-12 要求「规则内置本地，但本地这份要跟上上游」，
  * 2026-10-13 收紧为「所有规则全部随仓库更新，不再把规则写死」）。
  *
- * 来源只有一处：我们自己的 `ipevel/polaris-rules`（每 15 分钟跟上游 ACL4SSR + MetaCubeX）。
+ * 来源只有一处：我们自己的 `xbzyz/niuren-rules`（每 15 分钟跟上游 ACL4SSR + MetaCubeX）。
  * 规则清单进 `data/polaris-rules/`（rule-provider 的 path 前缀），
  * geo 三份进 `data/`（内核 `-d` 目录，`geodata-loader: standard` 就近读）。
  * 两份都随包内置，所以「不联网也能分流」不受影响；这里只是每 12 小时对一次上游。
@@ -372,18 +381,46 @@ function assertPortFree(port) {
   });
 }
 
+/**
+ * macOS 的内核定点校验：与 Windows 的包内清单同一用途，格式是打包时写在
+ * 内核旁边的 `mihomo.sha256`（首段 64 位十六进制 = 摘要）。缺文件 → skipped
+ * （老包/开发态不因此起不来，但关于页会照实显示"未执行"）；摘要不符 → 拒启。
+ */
+function verifyDarwinCore(exe) {
+  let want = '';
+  try {
+    want = fs.readFileSync(exe + '.sha256', 'utf8').trim().toLowerCase().split(/\s+/)[0];
+  } catch (_) {
+    return { ok: true, skipped: true, reason: '包内没有内核摘要文件（mihomo.sha256）' };
+  }
+  if (!/^[0-9a-f]{64}$/.test(want)) {
+    return { ok: true, skipped: true, reason: '内核摘要文件格式不对' };
+  }
+  try {
+    const actual = crypto.createHash('sha256').update(fs.readFileSync(exe)).digest('hex');
+    if (actual !== want) {
+      return { ok: false, reason: `内核 mihomo 与包内摘要不符（期望 ${want.slice(0, 12)}…，实际 ${actual.slice(0, 12)}…）` };
+    }
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, reason: '读不了内核文件：' + (e && e.message) };
+  }
+}
+
 async function startKernel() {
   if (S.phase !== 'idle') return;
   const exe = coreExe();
   if (!fs.existsSync(exe)) {
-    throw new Error(`未找到内核 mihomo.exe（${paths.core()}），请重新解压完整目录`);
+    throw new Error(`未找到内核 ${coreExeName()}（${paths.core()}），请重新解压完整目录`);
   }
-  // 启动前定点核对内核与包内清单：内核是随包分发的原生 exe，半覆盖 / 被杀软截断时，
+  // 启动前定点核对内核与包内清单：内核是随包分发的原生可执行文件，半覆盖 / 被杀软截断时，
   // 它坏掉的表现是「连不上」这种玄学，在这里换成一句人话。只核内核**一个**文件 ——
   // 整包（geo / 规则几百 MB）每次启动都算一遍不可接受。清单缺失 / 没有这一条 → 跳过。
-  const integrity = require('./updater').verifyManifestEntry(require('./updater').installDir(), 'resources/core/mihomo.exe');
+  const integrity = process.platform === 'darwin'
+    ? verifyDarwinCore(exe)
+    : require('./updater').verifyManifestEntry(require('./updater').installDir(), 'resources/core/mihomo.exe');
   if (!integrity.ok) {
-    throw new Error(`内核 mihomo.exe 与包内清单不符（${integrity.reason}），请重新解压完整的便携目录`);
+    throw new Error(`内核 ${coreExeName()} 与包内清单不符（${integrity.reason}），请重新解压完整的便携目录`);
   }
   if (integrity.skipped) {
     // 硬要求（决策主管）：跳过**不等于通过**，必须留可诊断记录 + 关于页可见，别静默放过。
@@ -488,6 +525,8 @@ async function startKernel() {
     if (lastNode) {
       const r = await selectNodeInGroup(controller, lastGroup, lastNode);
       store.set('last_group', r.group);
+      // 上次就是全局模式：内核起来后 GLOBAL 出口是默认值，必须重新对齐（同 setMode）
+      if (S.mode === 'global') await setGlobalExit(r.node);
     }
   } catch (e) {
     log.warn('restore last node failed:', e.message);
@@ -633,12 +672,23 @@ function previewNodes() {
         now: '',
         count: members.length,
         options: members,
-        latency: -1,
+        // 未连接测速的结果存在 S.groupLatency 里，因为本函数每次都会重建 S.groups，
+        // 直接写在对象上会在下一次刷新时被冲掉（分组徽章就一直是「未测」）。
+        latency: typeof S.groupLatency.get(g.name) === 'number' ? S.groupLatency.get(g.name) : -1,
         primary: g.name === MAIN_GROUP,
         builtin: g.name === 'GLOBAL',
         structural: STRUCTURAL_GROUPS.has(g.name),
       };
     });
+
+    // 未连接预览也要把"上次选的节点"带出来：本地 config.yaml 里所有分组 now 都是空，
+    // 不补的话节点页的选中勾永远不亮。连接后 routingGroups 改从内核读真实 now，不受影响。
+    const ln = store.get('last_node');
+    const lg = store.get('last_group') || MAIN_GROUP;
+    if (ln) {
+      S.groups = S.groups.map((g) =>
+        (g.name === lg && (g.options || []).includes(ln)) ? Object.assign({}, g, { now: ln }) : g);
+    }
 
     const main = groups.find((g) => g.name === MAIN_GROUP) || groups[0];
     const names = main ? membersOf(main) : allNames;
@@ -694,10 +744,25 @@ async function selectNodeInGroup(controller, groupName, nodeName) {
 }
 
 async function selectNode(name, groupName) {
-  if (S.phase !== 'connected') throw new Error('尚未连接');
   // 节点页的分组手风琴里点某一项时，要切的是**那个分组**的出口，
   // 不是上次记住的分组（用户点「自动选择」里的节点却改了「节点选择」的出口是 bug）。
   const want = groupName || MAIN_GROUP;
+  // 未连接也允许"先选节点"：内核没起来没法改路由，但可以先把意图记到本地，
+  // 连上时再自动应用（用户要求：支持未连接先选择节点）。
+  // 同时把分组出口 now 指过去，让节点页的选中高亮立刻生效 —— 连接前的预览节点列表
+  // 来自本地 config.yaml，是可以点的。
+  if (S.phase !== 'connected') {
+    store.set('last_node', name);
+    store.set('last_group', want);
+    if (!S.groups || !S.groups.length) {
+      try { previewNodes(); } catch (_) {}
+    }
+    if (S.groups && S.groups.length) {
+      S.groups = S.groups.map((g) => (g.name === want ? Object.assign({}, g, { now: name }) : g));
+    }
+    emit();
+    return { node: name, group: want, main: want === MAIN_GROUP, pending: true };
+  }
   const r = await selectNodeInGroup(S.controller, want, name);
   if (r.group === MAIN_GROUP) {
     S.node = r.node;
@@ -705,16 +770,102 @@ async function selectNode(name, groupName) {
     // last_group 只记主组：它是"上次选中的那个组"。分流组的出口不等于"当前节点"，
     // 记进来会让 loadNodes 与重连恢复都跟着那个分流组跑（同上）。
     store.set('last_group', r.group);
+    // 全局模式下流量走 GLOBAL 不走主组：换节点要把 GLOBAL 一起跟过去，否则
+    // "换了节点但实际没变"（用户第 15 轮：全局模式用不了）。
+    if (S.mode === 'global') await setGlobalExit(r.node);
   }
   await loadNodes(true);
   emit();
   // 把"改的是哪个组"一起回给渲染层：只有主组的出口才等于"当前节点"，
   // 在分流组里换节点时不能把首页那条当前节点改掉（用户第 12 轮第 1 条）。
-  return { node: r.node, group: r.group };
+  return { node: r.node, group: r.group, main: r.group === MAIN_GROUP };
+}
+
+/**
+ * 未连接时也允许测延迟：直接对每个节点的 server:port 做 TCP 握手计时。
+ *
+ * 为什么不等连上：用户要在选节点之前就知道哪些服务器活着（未连接选节点功能
+ * 的配套）。内核的 delay 测的是"经该代理访问 gstatic 的完整耗时"，这里测不到；
+ * TCP 握手只反映服务器可达性与网络往返，数字会比内核测的偏小，但足以比较
+ * 节点之间的快慢、挑出不通的。连接后再点一次就会走内核的完整测速。
+ */
+function tcpPing(host, port, timeout = 5000) {
+  return new Promise((resolve) => {
+    const t0 = Date.now();
+    const sock = new net.Socket();
+    let done = false;
+    const finish = (ok) => {
+      if (done) return;
+      done = true;
+      try { sock.destroy(); } catch (_) {}
+      resolve(ok ? Date.now() - t0 : -1);
+    };
+    sock.setTimeout(timeout);
+    sock.once('connect', () => finish(true));
+    sock.once('timeout', () => finish(false));
+    sock.once('error', () => finish(false));
+    try { sock.connect(Number(port) || 443, host); } catch (_) { finish(false); }
+  });
+}
+
+/** 未连接版的测速：读本地 config.yaml 拿 server/port，TCP 握手测延迟 */
+async function previewSpeedTest() {
+  let endpoints = new Map();
+  try {
+    if (fs.existsSync(configFile())) {
+      const cfg = yaml.load(fs.readFileSync(configFile(), 'utf8'));
+      const proxies = Array.isArray(cfg && cfg.proxies) ? cfg.proxies : [];
+      endpoints = new Map(proxies
+        .filter((p) => p && p.name && p.server)
+        .map((p) => [p.name, { server: p.server, port: p.port }]));
+    }
+  } catch (e) {
+    log.warn('previewSpeedTest read config failed:', e && e.message);
+  }
+  if (endpoints.size === 0) throw new Error('还没有可用配置，请先登录面板拉取订阅');
+
+  const nodes = await loadNodes();
+  const now = Date.now();
+  const CONCURRENCY = 8;
+  const list = nodes.slice();
+
+  const worker = async () => {
+    for (;;) {
+      const n = list.shift();
+      if (!n) return;
+      const ep = endpoints.get(n.name);
+      if (!ep) { S.speedCache.set(n.name, { latency: -1, at: now }); continue; }
+      const ms = await tcpPing(ep.server, ep.port);
+      S.speedCache.set(n.name, { latency: ms, at: now });
+      if (ms > 0) S.offlineCache.delete(n.name);
+    }
+  };
+  await Promise.all(Array.from({ length: CONCURRENCY }, worker));
+
+  // 分组徽章也给个数字：有出口就取出口的，没有就取组内最慢能通的那个里最快的
+  // （URLTest 组连上之后大致就会挑到它）。存在 S.groupLatency 里，
+  // 因为 previewNodes() 每次都重建 S.groups，写在对象上会被冲掉。
+  for (const g of S.groups) {
+    const c = g.now ? S.speedCache.get(g.now) : null;
+    let d = c && typeof c.latency === 'number' && c.latency > 0 ? c.latency : 0;
+    if (!d) {
+      let best = 0;
+      for (const n of g.options || []) {
+        const cc = S.speedCache.get(n);
+        if (cc && typeof cc.latency === 'number' && cc.latency > 0 && (!best || cc.latency < best)) best = cc.latency;
+      }
+      d = best;
+    }
+    S.groupLatency.set(g.name, d > 0 ? d : -1);
+  }
+
+  await loadNodes(true);
+  emit();
+  return S.nodes;
 }
 
 async function speedTest() {
-  if (S.phase !== 'connected') throw new Error('尚未连接');
+  if (S.phase !== 'connected') return previewSpeedTest();
   const nodes = await loadNodes();
   const url = encodeURIComponent('https://www.gstatic.com/generate_204');
   const CONCURRENCY = 8;
@@ -829,12 +980,120 @@ async function testGroupDelays() {
   return done;
 }
 
+/**
+ * 只测**一个**分组的延迟（节点页每个分组卡上的「测延迟」按钮）。
+ *
+ * 已连接：内核 /proxies/<组名>/delay，失败时退回当前出口节点的缓存延迟；
+ * 未连接：内核没起，但用户明确要求未连接也能测 —— 与全局「延迟测试」的
+ * previewSpeedTest 同口径，读本地 config.yaml 拿组内节点的 server/port 做
+ * TCP 握手，组徽章取「当前出口的延迟，没有就取组内能通的里最快的那个」。
+ *
+ * 结果都写进 S.groupLatency，随 routingGroups() 带出。
+ */
+async function testGroupDelay(name) {
+  if (!name) return -1;
+  if (S.phase === 'connected' && S.controller) {
+    const url = encodeURIComponent('https://www.gstatic.com/generate_204');
+    let d = -1;
+    try {
+      const r = await S.controller.get(`/proxies/${encodeURIComponent(name)}/delay?timeout=5000&url=${url}`, undefined, 8000);
+      d = r && typeof r.delay === 'number' && r.delay > 0 ? r.delay : -1;
+    } catch (_) { d = -1; }
+    if (d <= 0) {
+      let proxies = {};
+      try { proxies = unwrapProxies(await S.controller.get('/proxies')); } catch (_) { proxies = {}; }
+      const exit = resolveExit(proxies, name);
+      const cached = exit ? S.speedCache.get(exit) : null;
+      if (cached && typeof cached.latency === 'number' && cached.latency > 0) d = cached.latency;
+    }
+    S.groupLatency.set(name, d);
+    return d;
+  }
+
+  // 未连接：只测这个分组里的成员节点（TCP 握手），不动别的节点
+  let endpoints = new Map();
+  try {
+    if (fs.existsSync(configFile())) {
+      const cfg = yaml.load(fs.readFileSync(configFile(), 'utf8'));
+      const proxies = Array.isArray(cfg && cfg.proxies) ? cfg.proxies : [];
+      endpoints = new Map(proxies
+        .filter((p) => p && p.name && p.server)
+        .map((p) => [p.name, { server: p.server, port: p.port }]));
+    }
+  } catch (e) {
+    log.warn('testGroupDelay(preview) read config failed:', e && e.message);
+  }
+  if (endpoints.size === 0) throw new Error('还没有可用配置，请先登录面板拉取订阅');
+
+  await loadNodes();   // 保证 S.groups（preview 版）已建好
+  const g = (S.groups || []).find((x) => x.name === name);
+  const members = (g && Array.isArray(g.options) ? g.options : []).filter((m) => endpoints.has(m));
+  if (!members.length) return -1;
+
+  const now = Date.now();
+  const worker = async () => {
+    for (;;) {
+      const m = members.shift();
+      if (!m) return;
+      const ep = endpoints.get(m);
+      const ms = await tcpPing(ep.server, ep.port);
+      S.speedCache.set(m, { latency: ms, at: now });
+      if (ms > 0) S.offlineCache.delete(m);
+    }
+  };
+  await Promise.all(Array.from({ length: 8 }, worker));
+
+  // 组延迟口径与 previewSpeedTest 一致：出口的延迟优先，否则取组内能通的里最快的
+  const c = g.now ? S.speedCache.get(g.now) : null;
+  let d = c && typeof c.latency === 'number' && c.latency > 0 ? c.latency : 0;
+  if (!d) {
+    let best = 0;
+    for (const m of g.options || []) {
+      const cc = S.speedCache.get(m);
+      if (cc && typeof cc.latency === 'number' && cc.latency > 0 && (!best || cc.latency < best)) best = cc.latency;
+    }
+    d = best;
+  }
+  d = d > 0 ? d : -1;
+  S.groupLatency.set(name, d);
+  await loadNodes(true);
+  emit();
+  return d;
+}
+
+/**
+ * 全局模式的出口同步：mihomo 切到 global 后所有流量走内置 GLOBAL 分组，
+ * 而界面上选节点改的是主组「🚀 节点选择」——GLOBAL 没人管，出口常常停在
+ * DIRECT 或别的节点上，用户看到的就是"切了全局就断网/不走代理"。
+ * 这里把 GLOBAL 的出口指到当前选中的节点，切模式和切节点两处都会调它。
+ */
+async function setGlobalExit(nodeName) {
+  if (!S.controller || !nodeName || nodeName === 'DIRECT' || nodeName === 'REJECT') return;
+  try {
+    await S.controller.put(`/proxies/${encodeURIComponent('GLOBAL')}`, { name: nodeName });
+    log.info(`global mode exit -> ${nodeName}`);
+  } catch (e) {
+    log.warn('set GLOBAL exit failed:', e && e.message);
+  }
+}
+
 async function setMode(mode) {
   const map = { rule: 'rule', global: 'global', direct: 'direct', 规则模式: 'rule', 全局模式: 'global', 直连模式: 'direct' };
   const m = map[mode] || mode;
   if (S.controller) await S.controller.patch('/configs', { mode: m });
   S.mode = m;
   store.set('proxy_mode', m);
+  if (m === 'global') {
+    // 切到全局：把 GLOBAL 出口对齐到"当前节点"，否则全局模式默认出口不可控。
+    let exit = S.node || store.get('last_node') || '';
+    if (!exit) {
+      try {
+        const proxies = unwrapProxies(await S.controller.get('/proxies'));
+        exit = resolveExit(proxies, MAIN_GROUP);
+      } catch (_) {}
+    }
+    await setGlobalExit(exit);
+  }
   emit();
   return m;
 }
@@ -959,7 +1218,7 @@ async function resetRoutingGroups() {
  * 分流页需要的全部数据：总开关 + 内置表的每一组 + 当前开关 + 运行中内核里的实际出口。
  * 规则集全部是 type:file 的本地种子（见 ensureRuleSeeds），内核不再联网拉规则；
  * 清单与 geodata（geosite.dat / geoip.metadb / ASN.mmdb）由 rulesync.js 每 12 小时
- * 从 `ipevel/polaris-rules` 一个源一起刷新，逐文件校验 sha256 后再替换。
+ * 从 `xbzyz/niuren-rules` 一个源一起刷新，逐文件校验 sha256 后再替换。
  */
 async function rulesetState() {
   const enabled = new Set(rulesets.normalizeEnabled(store.get('routing_rules')));
@@ -1216,7 +1475,7 @@ function requireCore() {
 
 module.exports = {
   status, connect, disconnect, shutdown, onStatus,
-  prepareConfig, loadNodes, cachedNodes, selectNode, speedTest, testGroupDelays, setMode,
+  prepareConfig, loadNodes, cachedNodes, selectNode, speedTest, testGroupDelays, testGroupDelay, setMode,
   routingGroups, setRoutingGroup, resetRoutingGroups,
   rulesetState, setRuleset, resetRulesets, reloadConfig, setLocalRouting,
   reorderRuleset, saveCustomRuleset, deleteCustomRuleset,

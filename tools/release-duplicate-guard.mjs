@@ -17,7 +17,7 @@
 // 用法（workflow 内，环境变量）：
 //   GH_TOKEN       必填，读 Actions/Release（workflow 里用 ${{ secrets.GITHUB_TOKEN }}，
 //                  权限 actions:read + contents:read）
-//   REPO           仓库，默认 ipevel/polaris
+//   REPO           仓库，默认 xbzyz/niuren
 //   SHA            本次构建提交（github.sha）
 //   RUN_ID         本次 run id（github.run_id），用于排除自己
 //   ALLOW_REPUBLISH  'true' 才有意识地放行已发布 Release 的重发，其余一律视为 false
@@ -111,7 +111,7 @@ async function apiGet(url, token) {
 
 async function main() {
   const token = String(process.env.GH_TOKEN || '');
-  const repo = String(process.env.REPO || 'ipevel/polaris');
+  const repo = String(process.env.REPO || 'xbzyz/niuren');
   const sha = String(process.env.SHA || '').trim();
   const ownRunId = String(process.env.RUN_ID || '').trim();
   const allowRepublish = String(process.env.ALLOW_REPUBLISH || '').trim().toLowerCase() === 'true';

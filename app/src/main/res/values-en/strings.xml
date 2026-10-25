@@ -1,6 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">Polaris</string>
     <string name="secure_prefs_degraded_warning">⚠ Secure storage error: some data is in-memory only and will be lost on restart. Try clearing app data and re-logging in.</string>
 
     <!-- Login -->
@@ -122,7 +121,7 @@
     <string name="dashboard_refresh_done">Subscription updated</string>
     <string name="notification_permission_denied">Notifications are off; connection status reminders may not appear</string>
     <string name="battery_opt_title">Allow Background Running</string>
-    <string name="battery_opt_message">The system may stop Polaris in the background, interrupting the proxy. Please set Polaris to "Don't optimize" in battery optimization to keep it running stably.</string>
+    <string name="battery_opt_message">The system may stop niuren in the background, interrupting the proxy. Please set niuren to "Don't optimize" in battery optimization to keep it running stably.</string>
     <string name="battery_opt_go_settings">Open Settings</string>
     <string name="battery_opt_later">Later</string>
 
@@ -379,7 +378,7 @@
     <string name="v5_balance">Balance</string>
     <string name="v5_all_nodes">All nodes</string>
     <string name="v5_no_nodes">No nodes yet — update your subscription first</string>
-    <string name="v5_nodes_offline_hint">Not connected — these nodes come from your subscription; connect to switch</string>
+    <string name="v5_nodes_offline_hint">Not connected — tap a node to remember it; it applies once connected</string>
     <string name="v5_nodes_summary_offline">%1$d nodes · not connected</string>
     <!-- Probed unreachable (NXDOMAIN / refused / no route). Distinct from the grey "Timeout": a timeout may just be a blip. -->
     <string name="v5_node_offline">Offline</string>
@@ -530,6 +529,7 @@
     <string name="proxy_groups_loading">Reading groups</string>
     <string name="proxy_group_test">Test</string>
     <string name="proxy_group_select_failed">Failed to switch</string>
+    <string name="node_selection_pending">Not connected — selection saved and will apply once connected</string>
     <string name="proxy_group_type_select">Manual</string>
     <string name="proxy_group_type_auto">Auto</string>
     <string name="proxy_group_type_fallback">Fallback</string>
@@ -561,4 +561,14 @@
     <string name="settings_appearance">Appearance</string>
     <string name="settings_group_general">General</string>
     <string name="settings_group_remind">Reminders</string>
+
+    <!-- Home notices (niuren custom) -->
+    <string name="home_notice_tag">Notice</string>
+    <string name="notice_read_button">Mark read</string>
+    <string name="notice_close_button">Close</string>
+
+    <!-- Home node picker (niuren custom) -->
+    <string name="v5_home_pick_node_hint">Tap to pick a node</string>
+    <string name="v5_home_pick_node_title">Pick a node</string>
+    <string name="v5_home_pick_node_count">%1$d nodes</string>
 </resources>

@@ -24,9 +24,10 @@ const crypto = require('crypto');
 const log = require('./logger');
 const paths = require('./paths');
 
-// 只备份这两样：一个是"我连的是哪个面板/有哪些设置"，一个是"我是谁"。
+// 只备份这三样：一个是"我连的是哪个面板/有哪些设置"，一个是"我是谁"，
+// 一个是 mac 上解密凭据用的本地密钥（credentials.dat 离了它解不开）。
 // 其余（订阅、config.yaml、内核缓存）都能重新拉，没必要复制。
-const FILES = ['settings.json', 'credentials.dat'];
+const FILES = ['settings.json', 'credentials.dat', 'secret.key'];
 
 function fingerprint() {
   const r = paths.root();

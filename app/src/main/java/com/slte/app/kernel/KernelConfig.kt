@@ -102,7 +102,7 @@ constructor(
                 profiles.setActive(profile)
             }
 
-            // 本地分流：确保 routing.json 存在（默认启用），并把自家域名清单
+            // 本地分流：确保 routing.json 存在（默认关闭，由 RoutingStateStore.ensureDefault 控制），并把自家域名清单
             // 与内置规则种子同步到内核，避免面板域名丢失直连兜底与冷启动断网
             // 时规则集为空。
             routingStateStore.ensureDefault(directDomains())
@@ -253,7 +253,7 @@ constructor(
      * 把分流规则清单复制到内核的 provider 目录
      * （imported/<uuid>/providers/polaris-rules/，与 Go 侧 patchProviders 改写后的路径一致）。
      *
-     * 取件顺序：**优先 [RuleResources] 已经从 `ipevel/polaris-rules` 刷下来的那份**，
+     * 取件顺序：**优先 [RuleResources] 已经从 `xbzyz/niuren-rules` 刷下来的那份**，
      * 随包种子（assets/routing/providers）只是首次启动 / 断网 / 未到刷新节拍时的兜底。
      * 两份的键名与内容都出自同一个仓库，只是新旧不同。
      *

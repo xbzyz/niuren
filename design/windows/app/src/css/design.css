@@ -172,6 +172,11 @@ h2, h3 { font-weight: var(--fw-bold); }
 .win-btn:hover { background: var(--fill-subtle); }
 .win-btn.close:hover { background: #e81123; color: #fff; }
 
+/* macOS：用原生红黄绿交通灯（hiddenInset 落在左上角），自绘的右上角按钮就不显示了；
+   拖动区让出左侧 72px，免得盖住交通灯、点不动。 */
+.platform-mac .win-btns { display: none; }
+.platform-mac .window-drag-region { left: 72px; }
+
 /* ============================ 侧栏 ============================ */
 .app-sidebar {
   position: relative; height: 100%;

@@ -270,6 +270,39 @@ fun primaryGroupOf(groups: List<KernelProxyGroupInfo>): KernelProxyGroupInfo? {
 }
 
 /**
+ * 给定真实节点名，从组列表解析出「承载该节点的组」名；**找不到就返回 null**。
+ *
+ * 支持主组嵌套：标准订阅里主组（如 niuren）的成员是「自动选择」子组，真实节点挂在
+ * 子组下。直接 patch 主组会因"组成员不存在"失败（真机：selectInGroup: 组成员不存在 [直]3美国）。
+ * 优先主组直接含该成员，否则回退到首个含该成员的组（即承载真实节点的子组）。
+ *
+ * **绝不能**在末尾回退到主组名：主组的成员是子组不是真实节点，回退等于把一个
+ * "必然 patch 失败"的组名当成解析成功。调用方用 `!= null` 判断"是否已解析到
+ * 承载组"，拿到主组名会让重试循环立刻退出、不再等内核把子组物化——于是连接后
+ * patch 主组失败 → 兜底 selectAuto 打回最快节点，正是真机反馈的"选 3 连接后变 1"。
+ * 找不到就让调用方继续重试（或走它自己的兜底），不要伪造一个假的成功。
+ */
+fun resolveCarryingGroup(
+    groups: List<KernelProxyGroupInfo>,
+    memberName: String,
+): String? {
+    // 必须与 selectInGroup 用同一套匹配口径（NodeNameResolver），不能用精确相等：
+    // 内核里的节点名带国旗 emoji 前缀（`🇩🇪 [直]1德国`），而面板/订阅列表里是
+    // `[直]1德国`——精确相等永远对不上，解析就永远返回 null，最后 patch 到一个
+    // 不存在的组、兜底 selectAuto 把用户选择打回第 1 个节点。
+    fun carries(group: KernelProxyGroupInfo): Boolean =
+        NodeNameResolver.resolve(group.members.map { it.name }, memberName) != null
+
+    val primary = primaryGroupOf(groups)
+    if (primary != null && carries(primary)) return primary.name
+    // 多个组都含该成员时**优先可手动切换的组**：selectInGroup 只接受 Selector /
+    // URLTest，挑到 Relay / LoadBalance 这类组必然 patch 失败，而这函数是
+    // "已解析到承载组"的信号，调用方拿到非 null 就不再重试——挑错组等于堵死入口。
+    val carrying = groups.filter { carries(it) }
+    return carrying.firstOrNull { it.selectable }?.name ?: carrying.firstOrNull()?.name
+}
+
+/**
  * 按面板节点顺序重排主组成员（纯函数，可单测）。
  *
  * 内核 `include-all` 并入的成员会被 mihomo 的 `slices.Sort` 按 UTF-8 字节序
@@ -289,6 +322,21 @@ fun orderMembers(
     val structural = members.filter { it.kind != KernelProxyMemberKind.NODE }
     val nodes = members.filter { it.kind == KernelProxyMemberKind.NODE }
     if (nodes.isEmpty()) return members
-    val ordered = nodes.sortedBy { nodeOrderIndex[it.name] ?: Int.MAX_VALUE }
+    // 索引的 key 来自订阅/面板（`[直]1德国`），成员名是内核名（可能带国旗前缀
+    // `🇩🇪 [直]1德国`）——精确查表会全部落空，排序退化成 no-op（顺序与面板不一致）。
+    // 先精确查，再按 NodeNameResolver 的同口径折叠查（保留 [直]/[CF] 标签）。
+    val foldedIndex = buildMap<String, Int> {
+        nodeOrderIndex.forEach { (name, index) ->
+            val key = NodeNameResolver.lightKey(name)
+            // 折叠后撞 key 时保留更靠前的面板顺序，保证顺序稳定
+            if (key.isNotEmpty() && (this[key] == null || index < this[key]!!)) this[key] = index
+        }
+    }
+    val ordered =
+        nodes.sortedBy { member ->
+            nodeOrderIndex[member.name]
+                ?: foldedIndex[NodeNameResolver.lightKey(member.name)]
+                ?: Int.MAX_VALUE
+        }
     return structural + ordered
 }

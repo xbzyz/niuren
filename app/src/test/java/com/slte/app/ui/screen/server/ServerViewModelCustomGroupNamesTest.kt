@@ -5,6 +5,7 @@ package com.slte.app.ui.screen.server
 
 import com.slte.app.data.local.InMemoryPreferences
 import com.slte.app.data.local.NodesSectionStore
+import com.slte.app.data.local.SessionStore
 import com.slte.app.data.repository.ServerRepository
 import com.slte.app.data.repository.SubscribeRepository
 import com.slte.app.kernel.KernelConfig
@@ -53,7 +54,15 @@ class ServerViewModelCustomGroupNamesTest {
         every { kernelConfig.routingStateStore } returns routingStateStore
         every { subscribeRepository.getCachedSubscribeInfo() } returns null
         every { kernelManager.profileLoaded } returns profileLoadedFlow
-        return ServerViewModel(serverRepository, subscribeRepository, kernelProxy, kernelManager, nodesSectionStore)
+        every { kernelManager.connected } returns MutableStateFlow(false)
+        return ServerViewModel(
+            serverRepository,
+            subscribeRepository,
+            kernelProxy,
+            kernelManager,
+            nodesSectionStore,
+            SessionStore(InMemoryPreferences()),
+        )
     }
 
     private fun stateOf(vararg names: String): RoutingState = RoutingState(custom = names.map { RoutingCustomGroup(it, "https://x.example.com/a.yaml") })

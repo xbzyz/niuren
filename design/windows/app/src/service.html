@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<!-- 内置客服页只跑本地资源；需要内联脚本绑定按钮，所以 script-src 带 'unsafe-inline' -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; object-src 'none'">
+<title>在线客服</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: #F5F5F7; color: #1d1d1f;
+    display: flex; flex-direction: column; min-height: 100vh;
+  }
+  header { padding: 22px 20px 14px; text-align: center; }
+  header .avatar {
+    width: 52px; height: 52px; border-radius: 50%; margin: 0 auto 10px;
+    background: linear-gradient(135deg, #3478F6, #5EA0FC);
+    display: flex; align-items: center; justify-content: center;
+  }
+  header .avatar svg { width: 26px; height: 26px; stroke: #fff; }
+  header h1 { font-size: 17px; font-weight: 600; }
+  header p { font-size: 12.5px; color: #86868b; margin-top: 4px; }
+  .items { padding: 4px 14px 14px; display: flex; flex-direction: column; gap: 10px; flex: 1; }
+  .card {
+    background: #fff; border-radius: 12px; padding: 14px 16px;
+    display: flex; align-items: center; gap: 12px;
+    cursor: pointer; border: 1px solid rgba(0,0,0,.04);
+    transition: transform .08s ease, box-shadow .08s ease;
+  }
+  .card:hover { transform: translateY(-1px); box-shadow: 0 4px 14px rgba(0,0,0,.06); }
+  .card:active { transform: translateY(0); }
+  .card .ico {
+    width: 38px; height: 38px; border-radius: 10px; flex: none;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .card .ico svg { width: 20px; height: 20px; stroke: #fff; }
+  .ico-blue   { background: #3478F6; }
+  .ico-teal   { background: #12B5A5; }
+  .ico-violet { background: #7B61FF; }
+  .card .txt { flex: 1; min-width: 0; }
+  .card .txt b { display: block; font-size: 14.5px; font-weight: 600; }
+  .card .txt span { display: block; font-size: 12px; color: #86868b; margin-top: 2px;
+                    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .card .chev { color: #c7c7cc; font-size: 16px; flex: none; }
+  footer { padding: 10px 16px 16px; text-align: center; font-size: 11.5px; color: #aeaeb2; }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+  <header>
+    <div class="avatar">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M3 12a9 9 0 0 1 18 0"/><path d="M3 12v4a2 2 0 0 0 2 2h1v-6H5a2 2 0 0 0-2 2z"/>
+        <path d="M21 12v4a2 2 0 0 1-2 2h-1v-6h1a2 2 0 0 1 2 2z"/><path d="M18 19a3 3 0 0 1-3 3h-3"/>
+      </svg>
+    </div>
+    <h1 id="hi-name">在线客服</h1>
+    <p>工作时间内会尽快回复，常见问题可先看下方入口</p>
+  </header>
+
+  <div class="items">
+    <div class="card" id="btn-ticket">
+      <div class="ico ico-blue">
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+        </svg>
+      </div>
+      <div class="txt"><b>提交工单</b><span>在应用内描述问题，客服回复后可收到通知</span></div>
+      <div class="chev">›</div>
+    </div>
+
+    <div class="card hidden" id="btn-tg">
+      <div class="ico ico-teal">
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4z"/>
+        </svg>
+      </div>
+      <div class="txt"><b>TG 交流群</b><span id="tg-url">加载中…</span></div>
+      <div class="chev">›</div>
+    </div>
+
+    <div class="card hidden" id="btn-site">
+      <div class="ico ico-violet">
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
+        </svg>
+      </div>
+      <div class="txt"><b>官方网站</b><span id="site-url">加载中…</span></div>
+      <div class="chev">›</div>
+    </div>
+  </div>
+
+  <footer>更多支持方式由站点管理员配置</footer>
+
+<script>
+  function $(s) { return document.querySelector(s); }
+  const invoke = (c, a) => window.polaris && window.polaris.invoke(c, a);
+
+  invoke('service_info').then((info) => {
+    if (info && info.appName) $('#hi-name').textContent = info.appName + ' · 在线客服';
+    if (info && info.telegramUrl) {
+      $('#tg-url').textContent = info.telegramUrl;
+      $('#btn-tg').classList.remove('hidden');
+    }
+    if (info && info.siteUrl) {
+      $('#site-url').textContent = info.siteUrl;
+      $('#btn-site').classList.remove('hidden');
+    }
+  }).catch(() => {});
+
+  $('#btn-ticket').addEventListener('click', () => invoke('service_go_tickets').catch(() => {}));
+  $('#btn-tg').addEventListener('click', () => {
+    const u = $('#tg-url').textContent;
+    if (u && /^https?:\/\//.test(u)) invoke('open_external', { url: u }).catch(() => {});
+  });
+  $('#btn-site').addEventListener('click', () => {
+    const u = $('#site-url').textContent;
+    if (u && /^https?:\/\//.test(u)) invoke('open_external', { url: u }).catch(() => {});
+  });
+</script>
+</body>
+</html>

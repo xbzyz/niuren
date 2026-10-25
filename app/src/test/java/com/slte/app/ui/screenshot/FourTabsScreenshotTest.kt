@@ -302,7 +302,6 @@ class FourTabsScreenshotTest {
                 onTestGroup = {},
                 onStartSpeedTest = {},
                 onRefreshSubscription = {},
-                onRoutingRules = {},
                 onNavSelect = {},
             )
         }
@@ -322,7 +321,6 @@ class FourTabsScreenshotTest {
                 onTestGroup = {},
                 onStartSpeedTest = {},
                 onRefreshSubscription = {},
-                onRoutingRules = {},
                 onNavSelect = {},
             )
         }
@@ -343,7 +341,6 @@ class FourTabsScreenshotTest {
                 onTestGroup = {},
                 onStartSpeedTest = {},
                 onRefreshSubscription = {},
-                onRoutingRules = {},
                 onNavSelect = {},
                 collapsedSections = setOf(com.slte.app.kernel.PRIMARY_SECTION_KEY),
             )
@@ -364,7 +361,6 @@ class FourTabsScreenshotTest {
                 onTestGroup = {},
                 onStartSpeedTest = {},
                 onRefreshSubscription = {},
-                onRoutingRules = {},
                 onNavSelect = {},
                 collapsedSections = setOf(com.slte.app.kernel.PRIMARY_SECTION_KEY),
             )

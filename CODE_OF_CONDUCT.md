@@ -34,7 +34,7 @@
 
 ## 举报渠道
 
-遭遇或目睹滥用、骚扰或其他不可接受行为时，请通过 [GitHub Issue](https://github.com/ipevel/polaris/issues) 留下联系方式（**不要在公开 Issue 中写明细节**），或直接通过[安全公告渠道](https://github.com/ipevel/polaris/security/advisories/new)私信维护者；维护者会以机密方式跟进。
+遭遇或目睹滥用、骚扰或其他不可接受行为时，请通过 [GitHub Issue](https://github.com/xbzyz/niuren/issues) 留下联系方式（**不要在公开 Issue 中写明细节**），或直接通过[安全公告渠道](https://github.com/xbzyz/niuren/security/advisories/new)私信维护者；维护者会以机密方式跟进。
 
 所有投诉都会被审阅与调查，并作出符合项目利益的回应。举报者身份对被举报人保密。明知故犯地不实举报同样会被视作不当行为。
 

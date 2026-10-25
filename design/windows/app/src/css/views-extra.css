@@ -76,3 +76,51 @@
   border-radius: 50%; background: #ff3b30; box-shadow: 0 0 8px rgba(255, 59, 48, 0.85);
 }
 :root[data-theme="dark"] .nav-link.has-dot::after { background: #ff453a; }
+
+/* ---------- 首页「节点选择」卡：列表过长时滚动，不把首页撑爆 ---------- */
+.node-select-card .acc-body.node-select-list {
+  max-height: 340px; overflow-y: auto; -webkit-overflow-scrolling: touch;
+}
+/* 卡片本身别被右侧窄列挤变形 */
+.node-select-card { margin-bottom: 14px; }
+.node-select-card .acc-head .chev { font-size: 20px; }
+
+/* ---------- 首页标题下的滚动公告条 ---------- */
+.notice-marquee {
+  display: flex; align-items: center; gap: 10px;
+  height: 40px; margin: 2px 0 14px; padding: 0 16px;
+  border: 1px solid var(--divider); border-radius: var(--radius-md);
+  background: var(--panel); cursor: pointer; overflow: hidden;
+}
+.notice-marquee .nm-icon { flex: none; font-size: 15px; }
+.notice-marquee .nm-arrow { flex: none; color: var(--text3); font-size: 16px; }
+.notice-marquee .nm-track {
+  flex: 1; min-width: 0; height: 100%;
+  display: flex; align-items: center; overflow: hidden;
+}
+/* 内层包裹承载两份相同内容，整体平移 50%（正好一份宽度）即无缝循环——
+ * 滚动只发生在内部文字上，外层栏与图标不动。 */
+.notice-marquee .nm-inner {
+  display: flex; width: max-content;
+  animation: nr-marquee 24s linear infinite;
+}
+.notice-marquee .nm-scroll {
+  flex: none; white-space: nowrap; padding-right: 60px;
+  color: var(--text2); font-size: 13px;
+}
+.notice-marquee:hover .nm-inner { animation-play-state: paused; }
+@keyframes nr-marquee {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
+/* design.css 的全局「减少动态效果」规则会把所有动画压成 0.001ms×1 次 ——
+ * Windows 关掉「显示动画」设置（或远程桌面会话）时 prefers-reduced-motion=reduce，
+ * 公告条瞬间跳到终点停住，看起来就是"不滚动"。公告是信息内容不是装饰动效，
+ * 这里显式豁免：跑马灯恢复自己的时长与无限循环（hover 暂停不受影响）。 */
+@media (prefers-reduced-motion: reduce) {
+  .notice-marquee .nm-inner {
+    animation-duration: 24s !important;
+    animation-iteration-count: infinite !important;
+    transition-duration: 0s !important;
+  }
+}

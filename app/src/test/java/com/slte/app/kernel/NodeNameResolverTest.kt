@@ -156,4 +156,51 @@ class NodeNameResolverTest {
     fun `空成员列表返回 null`() {
         assertNull(NodeNameResolver.resolve(emptyList(), "server"))
     }
+
+    // --- lightKey(): 保留前导标签，只剥装饰（去歧义专用口径） ---
+
+    @Test
+    fun `lightKey 剥装饰但保留前导标签，of 则连标签一起剥`() {
+        // 真机内核名带国旗前缀：`🇺🇸 [直]3美国`
+        assertEquals("[直]3美国", NodeNameResolver.lightKey("🇺🇸 [直]3美国"))
+        assertEquals("3美国", NodeNameResolver.of("🇺🇸 [直]3美国"))
+        assertEquals("[cf]3美国", NodeNameResolver.lightKey("🇺🇸 [CF]3美国"))
+    }
+
+    @Test
+    fun `国旗前缀差异要能匹配上`() {
+        // 回归真机：内核里的节点名带国旗 emoji，面板/订阅列表里没有；
+        // 精确相等对不上 → 旧逻辑判「组成员不存在」
+        val members = listOf("🇩🇪 [直]1德国", "🇺🇸 [直]3美国")
+        assertEquals("🇺🇸 [直]3美国", NodeNameResolver.resolve(members, "[直]3美国"))
+    }
+
+    @Test
+    fun `只差前导标签的两个节点不得歧义成 null`() {
+        // 回归真机「选 [直]3美国 连接后变 [直]1德国」：of() 把 [直]/[CF] 都剥掉，
+        // 两者折叠成同一个 key，singleOrNull 因 2 个命中返回 null。
+        // lightKey 保留标签后必须各自唯一命中。
+        val members = listOf("🇩🇪 [直]1德国", "🇺🇸 [直]3美国", "🇺🇸 [CF]3美国")
+        assertEquals("🇺🇸 [直]3美国", NodeNameResolver.resolve(members, "[直]3美国"))
+        assertEquals("🇺🇸 [CF]3美国", NodeNameResolver.resolve(members, "[CF]3美国"))
+    }
+
+    @Test
+    fun `确实无法区分时才返回 null`() {
+        // 连"保留标签"之后都一模一样 → 真歧义，保持返回 null
+        assertNull(NodeNameResolver.resolve(listOf("🇩🇪 3美国", "🇺🇸 3美国"), "3美国"))
+    }
+
+    /**
+     * 成员名**重复**不能被当成歧义：本地分流下每个生成组都是 include-all，
+     * 摊平多个组的成员后同一节点会重复 N 次（真实调用：
+     * ServerViewModel.probeFailedNodes 的 `_proxyGroups.flatMap { it.members }`）。
+     * 去重前 `singleOrNull()` 见 N>1 一律返回 null，解析静默失败。
+     */
+    @Test
+    fun `成员名重复时不误判为歧义`() {
+        val members = listOf("🇩🇪 [直]1德国", "🇩🇪 [直]1德国", "🇺🇸 [直]3美国", "🇺🇸 [直]3美国")
+        assertEquals("🇩🇪 [直]1德国", NodeNameResolver.resolve(members, "[直]1德国"))
+        assertEquals("🇺🇸 [直]3美国", NodeNameResolver.resolve(members, "[直]3美国"))
+    }
 }

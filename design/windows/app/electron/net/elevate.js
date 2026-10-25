@@ -75,3 +75,12 @@ function restartAsAdmin(extraArgs = []) {
 }
 
 module.exports = { isAdmin, isAdminSync, restartAsAdmin };
+'use strict';
+/* niuren macOS 适配：无需 UAC 提权，导出安全桩 */
+if (process.platform === 'darwin') {
+  module.exports = {
+    isAdmin: async () => true,
+    isAdminSync: () => true,
+    restartAsAdmin: () => { throw new Error('macOS 适配版无需以管理员身份重启'); },
+  };
+}

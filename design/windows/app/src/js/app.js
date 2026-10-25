@@ -34,7 +34,7 @@
     groups: [],
     rulesets: { groups: [], total: 0 },
     nodeFilter: "",
-    openGroups: {},        // 节点页分组手风琴的展开状态（未记录时第一个分组默认展开）
+    openGroups: {},        // 节点页分组手风琴的展开状态（主组「🚀 节点选择」没记录时默认展开）
     testing: false,
     refreshing: false,
     // 拉订阅失败的原因（节点页/流量页要拿它说清楚"为什么是空的"）。
@@ -161,7 +161,7 @@
       });
       syncUpdateDot();
       const verEl = $("#side-ver");
-      if (verEl) verEl.textContent = state.settings && state.settings.version ? "Polaris " + state.settings.version : "";
+      if (verEl) verEl.textContent = state.settings && state.settings.version ? "niuren " + state.settings.version : "";
       bindCommon();
       ({
         nodes: bindNodes, settings: bindSettings, me: bindMe, plans: bindPlans,
@@ -248,6 +248,39 @@
   }
   window.PolarisDialog = { open: openDialog, close: closeDialog };
 
+  /* ---------------- 公告弹窗 ----------------
+   * 启动/登录后公告数据一落地，自动把最新一条没弹过的公告弹出来。
+   * 去重改为「已读集合」：只有用户点过「已读」的公告才永久不再弹；
+   * 新发的公告（不同 id）照样自动弹，点「已读」后也不再来。 */
+  let announceChecked = false;
+  function noticeKey(n) { return (n && (n.id || (n.title + "|" + (n.date || "")))) || ""; }
+  function noticeReadSet() {
+    try { const a = JSON.parse(localStorage.getItem("nr_notice_read") || "[]"); return Array.isArray(a) ? a : []; }
+    catch (_) { return []; }
+  }
+  function markNoticeRead(key) {
+    if (!key) return;
+    const set = noticeReadSet();
+    if (!set.includes(key)) set.push(key);
+    try { localStorage.setItem("nr_notice_read", JSON.stringify(set.slice(-100))); } catch (_) {}
+  }
+  function maybeAnnouncePopup() {
+    if (announceChecked || !state.notices.length) return;
+    announceChecked = true;
+    const read = noticeReadSet();
+    const fresh = state.notices.find((n) => !read.includes(noticeKey(n)));
+    if (!fresh) return;
+    setTimeout(() => {
+      // 有别的弹窗开着就让位：这次不弹也不记账，下次启动再试
+      if (overlayRoot.children.length) { announceChecked = false; return; }
+      if (fresh.unread) {
+        fresh.unread = false;
+        state.unreadNotices = state.notices.filter((x) => x.unread).length;
+      }
+      openDialog("notice", fresh);
+    }, 1500);
+  }
+
   function toast(msg) {
     const d = document.createElement("div");
     d.textContent = msg;
@@ -289,9 +322,13 @@
     $$("[data-acc]").forEach((el) => el.addEventListener("click", () => {
       const name = el.dataset.acc;
       const open = state.openGroups || (state.openGroups = {});
-      const wasOpen = !!open[name];
+      // 主组「🚀 节点选择」没被点过时默认展开（views 里 undefined 当展开），
+      // 所以"当前是否展开"要按同一条规则算，不然点默认展开的主组收不起来。
+      const primaryG = (state.groups || []).find((g) => g.primary);
+      const isPrimary = !!(primaryG && primaryG.name === name);
+      const wasOpen = isPrimary ? open[name] !== false : !!open[name];
       for (const k of Object.keys(open)) open[k] = false;
-      if (!wasOpen) open[name] = true;
+      open[name] = !wasOpen;   // 显式记 true/false：undefined 会被主组当成"默认展开"
       render();
     }));
     bindMarkdownLinks(document);
@@ -364,10 +401,20 @@
     else if (action === "set-theme") openDialog("appearance", state);
     else if (action === "set-lang") openDialog("language", state);
     else if (action === "set-tun-stack") openDialog("tunStack", state);
-    else if (action === "set-port") openDialog("port", state.settings);
+    else if (action === "set-port") {
+      // 弹窗里的"当前运行端口"必须是实时的 —— state.settings 是上一次的快照，
+      // 连接后不重拉就永远显示"未启动"（用户踩过：明明已连接，弹窗还是未启动）。
+      // 打开前先从主进程现取一次，失败再用缓存兜底。
+      const fresh = await api.getSettings().catch(() => null);
+      if (fresh && typeof fresh === "object") state.settings = Object.assign({}, state.settings, fresh);
+      openDialog("port", state.settings);
+    }
     else if (action === "export-logs") {
       const r = await guard("导出日志", () => api.exportLogs());
       if (r) toast(r.ok ? "日志已导出到 " + r.path : "已取消");
+    } else if (action === "clear-cache") {
+      const r = await guard("清理缓存", () => api.invoke("clear_cache"));
+      if (r) toast("已清理" + (r.freed > 0 ? "，释放 " + fmt.bytes(r.freed) : ""));
     } else if (action === "license") openDialog("about", state.appInfo);
     else if (action === "cleanup-tun") {
       const r = await guard("清理虚拟网卡", () => api.invoke("cleanup_tun"));
@@ -399,6 +446,13 @@
   }
 
   function bindDialog(name, arg) {
+    if (name === "notice") {
+      const rb = $("#btn-notice-read");
+      if (rb) rb.addEventListener("click", () => {
+        markNoticeRead(noticeKey(arg));
+        closeDialog();
+      });
+    }
     if (name === "proxy") {
       $$("[data-mode]", overlayRoot).forEach((el) => el.addEventListener("click", async () => {
         const r = await guard("切换模式", () => api.setProxyMode(el.dataset.mode));
@@ -627,6 +681,44 @@
 
   /* ---------------- 各页事件 ---------------- */
   function bindHome() {
+    // 首页「节点选择」卡的 .node-row 也要能点选 —— 与节点页共用 bindNodeRows
+    bindNodeRows();
+    // 标题下的滚动公告条：点击弹出最新一条公告详情（与公告通知页同一弹窗）
+    const mq = $("#notice-marquee");
+    if (mq && state.notices.length) {
+      // 短内容补齐：公告文字比滚动栏窄时，两份拷贝会同时可见、留出大段空白，
+      // 看起来像"只有一半在滚"。这里量一下实际宽度，把文字重复到每份都铺满
+      // 整条栏，两份首尾相接才是真正的无缝循环。
+      const track = mq.querySelector(".nm-track");
+      const scrolls = mq.querySelectorAll(".nm-scroll");
+      if (track && scrolls.length === 2) {
+        const base = scrolls[0].textContent || "";
+        const w = scrolls[0].scrollWidth || 1;
+        const need = Math.min(20, Math.max(1, Math.ceil((track.clientWidth * 1.2) / w)));
+        if (need > 1) {
+          const filled = new Array(need).fill(base).join("　　　·　　　");
+          scrolls[0].textContent = filled;
+          scrolls[1].textContent = filled;
+        }
+      }
+      mq.addEventListener("click", () => {
+        const n = state.notices[0];
+        if (!n) return;
+        if (n.unread) {
+          n.unread = false;
+          state.unreadNotices = state.notices.filter((x) => x.unread).length;
+        }
+        openDialog("notice", n);
+      });
+    }
+    // 「面板」格：点击直接在浏览器打开面板地址（open_external 只放行 http/https）
+    const pl = $("#panel-link");
+    if (pl) pl.addEventListener("click", () => {
+      const u = String((state.settings && state.settings.panel_url) || "");
+      if (!u) { toast("还没有配置面板地址"); return; }
+      const url = /^https?:\/\//i.test(u) ? u : "https://" + u;
+      guard("打开面板", () => api.openExternal(url));
+    });
     const pw = $("#power");
     if (!pw) return;
     pw.addEventListener("click", async () => {
@@ -637,6 +729,8 @@
         if (state.connected) {
           await api.disconnect();
           state.connected = false;
+          // 断开后端口不再监听，刷新设置把运行端口清回"未运行"（与端口弹窗同一类过期）
+          state.settings = Object.assign({}, state.settings, await api.getSettings().catch(() => ({})));
           toast("已断开");
         } else {
           if (!state.settings.authed) { state.busy = false; nav("login"); return; }
@@ -644,6 +738,8 @@
           state.connected = true;
           if (st && st.node) state.node = st.node;
           if (st && st.latency) state.latency = st.latency;
+          // 内核已在监听端口，刷新设置（含 running_port），否则首页代理模式行仍显示"未运行"
+          state.settings = Object.assign({}, state.settings, await api.getSettings().catch(() => ({})));
           justConnected = true;
           toast("已连接");
         }
@@ -700,7 +796,7 @@
       openDialog("portNotice", {
         title: "本机代理端口被占用",
         body: `${port} 端口被 PID ${owner.pid} 占用，但认不出它是哪个程序。`,
-        hint: `可能权限不足或该进程受系统保护。为了不误杀重要进程，Polaris 不会去关它 —— 请手动退出占用该端口的软件，或在「设置 → 本机代理端口」换一个端口。`,
+        hint: `可能权限不足或该进程受系统保护。为了不误杀重要进程，niuren 不会去关它 —— 请手动退出占用该端口的软件，或在「设置 → 本机代理端口」换一个端口。`,
       });
       return;
     }
@@ -715,7 +811,7 @@
             "access-denied": "（系统拒绝访问，需要管理员权限）",
             "unidentified": "（认不出是哪个程序，已放弃，不会强杀）",
             "invalid": "（无效的进程号）",
-            "self": "（那就是 Polaris 自己）",
+            "self": "（那就是 niuren 自己）",
             "not-found": "（进程已经不在了，但端口还占着）",
             "still-running": "（它没响应强制结束）",
           }[r && r.reason] || "（可能需要管理员权限）";
@@ -767,7 +863,8 @@
     const login = $("#btn-login");
     if (login) {
       const submit = async () => {
-        const panelUrl = $("#login-panel").value.trim();
+        // 面板地址已写死在主进程 store 默认值里（store.js panel_url），登录页不再展示输入框
+        const panelUrl = state.settings.panel_url || "https://124353.xyz";
         const email = $("#login-email").value.trim();
         const pass = $("#login-pass").value;
         state.authError = "";
@@ -797,7 +894,7 @@
         }
       };
       login.addEventListener("click", submit);
-      $$("#login-email, #login-pass, #login-panel").forEach((el) =>
+      $$("#login-email, #login-pass").forEach((el) =>
         el.addEventListener("keydown", (e) => { if (e.key === "Enter") submit(); }));
     }
 
@@ -837,17 +934,9 @@
     });
   }
 
-  function bindNodes() {
-    const input = $("#node-search");
-    if (input) {
-      input.addEventListener("input", () => {
-        state.nodeFilter = input.value;
-        render();
-        const n = $("#node-search");
-        if (n) { n.focus(); n.setSelectionRange(n.value.length, n.value.length); }
-      });
-    }
-    // 分组手风琴里的节点行带 data-node-group：切的是**那个分组**的出口
+  /** 节点行（.node-row）点击切换出口。首页「节点选择」卡和节点页共用同一套渲染，
+   *  所以首页和节点页都要绑定它（bindHome / bindNodes 各自调用）。 */
+  function bindNodeRows() {
     $$(".node-row").forEach((el) => el.addEventListener("click", async () => {
       const group = el.dataset.nodeGroup || undefined;
       const r = await guard("切换节点", () => api.selectNode(el.dataset.node, group));
@@ -862,11 +951,48 @@
         }
         // 分组的"当前出口"和徽章上的延迟都要跟着变（第 3 条）
         state.groups = await api.getRoutingGroups().catch(() => state.groups);
-        render(); toast("已切换到 " + r.node);
+        render();
+        // 未连接时先选的节点：连接后会自动应用，这里用不同的提示区分"已切换"与"已记住"
+        toast(r.pending ? `已记住「${r.node}」，连接后生效` : `已切换到 ${r.node}`);
       }
     }));
+  }
+
+  function bindNodes() {
+    const input = $("#node-search");
+    if (input) {
+      input.addEventListener("input", () => {
+        state.nodeFilter = input.value;
+        render();
+        const n = $("#node-search");
+        if (n) { n.focus(); n.setSelectionRange(n.value.length, n.value.length); }
+      });
+    }
+    // 分组手风琴里的节点行带 data-node-group：切的是**那个分组**的出口
+    bindNodeRows();
     const st = $("#btn-speedtest");
     if (st) st.addEventListener("click", () => runDelayTest(false));
+    // 每个分组卡上的「测延迟」：只测那一个组。已连接走内核 /proxies/<组名>/delay；
+    // 未连接也能测 —— 内核侧退回 TCP 握手（与全局「延迟测试」未连接时同一口径）。
+    // stopPropagation 别让点击冒泡成手风琴的展开/收起。
+    $$("[data-grouptest]").forEach((b) => b.addEventListener("click", async (ev) => {
+      ev.stopPropagation();
+      if (state.testing) return;
+      const name = b.dataset.grouptest;
+      state.testing = true; render();
+      try {
+        const r = await api.testGroupDelay(name);
+        state.nodes = await api.getNodes().catch(() => state.nodes);
+        state.groups = await api.getRoutingGroups().catch(() => state.groups);
+        const d = r && typeof r.latency === "number" ? r.latency : -1;
+        toast(d > 0 ? "「" + name + "」延迟 " + d + " ms"
+          : "「" + name + "」测不出延迟（节点可能不可用）");
+      } catch (e) {
+        toast("延迟测试失败：" + ((e && e.message) || e));
+      }
+      state.testing = false;
+      render();
+    }));
     const rf = $("#btn-refresh-sub");
     if (rf) rf.addEventListener("click", async () => {
       state.refreshing = true;
@@ -914,7 +1040,12 @@
       state.groups = await api.getRoutingGroups().catch(() => state.groups);
     }
     render();
-    if (r) toast(auto ? "已自动完成延迟测试" : "延迟测试完成");
+    if (r) {
+      // 未连接时走的是 TCP 握手测速（只反映服务器可达与往返），数字会比连上后
+      // 内核那套"经代理访问 gstatic"的偏小，提示一句免得用户拿两个数字对不上。
+      toast(auto ? "已自动完成延迟测试"
+        : (state.phase === "connected" ? "延迟测试完成" : "延迟测试完成（未连接，为直连握手延迟）"));
+    }
     else if (lastMsg) toast("延迟测试失败：" + lastMsg);
   }
 
@@ -1384,6 +1515,7 @@
         if (!v) return;
         state.notices = v;
         state.unreadNotices = v.filter((n) => n.unread).length;
+        maybeAnnouncePopup();   // 公告弹窗：登录/启动后自动弹最新一条没看过的
       },
     },
     {
@@ -1629,6 +1761,9 @@
   }
 
   document.addEventListener("DOMContentLoaded", () => {
+    // 平台标签：mac 用原生交通灯（hiddenInset），其余用自绘标题栏按钮。
+    const pf = (window.polaris && window.polaris.platform) || '';
+    document.body.classList.add(pf === 'darwin' ? 'platform-mac' : 'platform-win');
     bindTitlebar();
     boot();
   });

@@ -1,6 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">Polaris</string>
     <string name="secure_prefs_degraded_warning">⚠ 安全儲存異常：部分資料僅存於記憶體，重啟後將遺失。請嘗試清除應用資料後重新登入。</string>
 
     <!-- Login -->
@@ -119,7 +118,7 @@
     <string name="dashboard_refresh_done">訂閱已更新</string>
     <string name="notification_permission_denied">未開啟通知權限，連線狀態提醒可能收不到</string>
     <string name="battery_opt_title">允許背景運行</string>
-    <string name="battery_opt_message">系統可能會在背景自動停止 Polaris，導致代理中斷。請在電池最佳化中將 Polaris 設為"不最佳化"，以保持背景穩定運行。</string>
+    <string name="battery_opt_message">系統可能會在背景自動停止 niuren，導致代理中斷。請在電池最佳化中將 niuren 設為"不最佳化"，以保持背景穩定運行。</string>
     <string name="battery_opt_go_settings">前往設定</string>
     <string name="battery_opt_later">稍後再說</string>
 
@@ -238,7 +237,7 @@
 
     <!-- About (关于软件) -->
     <string name="about_title">關於軟體</string>
-    <string name="about_app_desc">北辰（Polaris）是一款基於 mihomo 內核的輕量代理用戶端，如北極星般穩定可靠，為你指引網絡航向</string>
+    <string name="about_app_desc">北辰（niuren）是一款基於 mihomo 內核的輕量代理用戶端，如北極星般穩定可靠，為你指引網絡航向</string>
     <string name="about_app_version">應用版本</string>
     <string name="about_kernel_version">核心版本</string>
     <string name="about_log_export">匯出日誌</string>
@@ -373,7 +372,7 @@
     <string name="v5_balance">餘額</string>
     <string name="v5_all_nodes">全部節點</string>
     <string name="v5_no_nodes">暫無節點，請先更新訂閱</string>
-    <string name="v5_nodes_offline_hint">尚未連線：以下是訂閱裡的節點，連線後即可切換</string>
+    <string name="v5_nodes_offline_hint">尚未連線：可以直接點選節點，選擇會被記住，連線後自動生效</string>
     <string name="v5_nodes_summary_offline">%1$d 個節點 · 未連線</string>
     <!-- 探測確認不可達（網域不存在／連線被拒／無路由），與灰色的「逾時」區分：逾時可能只是抖動 -->
     <string name="v5_node_offline">離線</string>
@@ -524,6 +523,7 @@
     <string name="proxy_groups_loading">正在讀取分組</string>
     <string name="proxy_group_test">測速</string>
     <string name="proxy_group_select_failed">切換失敗</string>
+    <string name="node_selection_pending">尚未連線，已記住該選擇，連線後自動生效</string>
     <string name="proxy_group_type_select">手動選擇</string>
     <string name="proxy_group_type_auto">自動測速</string>
     <string name="proxy_group_type_fallback">故障轉移</string>
@@ -555,4 +555,14 @@
     <string name="settings_appearance">外觀</string>
     <string name="settings_group_general">一般</string>
     <string name="settings_group_remind">提醒</string>
+
+    <!-- 首页公告（niuren 定制） -->
+    <string name="home_notice_tag">公告</string>
+    <string name="notice_read_button">已讀</string>
+    <string name="notice_close_button">關閉</string>
+
+    <!-- 首頁節點選擇（niuren 定制） -->
+    <string name="v5_home_pick_node_hint">點擊選擇節點</string>
+    <string name="v5_home_pick_node_title">選擇節點</string>
+    <string name="v5_home_pick_node_count">%1$d 個節點</string>
 </resources>

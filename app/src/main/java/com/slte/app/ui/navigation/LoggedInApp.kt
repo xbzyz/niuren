@@ -112,7 +112,6 @@ fun LoggedInApp(
                         viewModels.orders.refresh()
                         pushPage(Page.Orders)
                     },
-                    onRoutingRules = { pushPage(Page.RoutingRules) },
                 )
             } else {
                 // 底部导航由 v5 页面自带的贴底通栏导航（V5BottomNavBar）提供，
@@ -129,7 +128,6 @@ fun LoggedInApp(
                         onTickets = { pushPage(Page.Ticket) },
                         onSettings = { pushPage(Page.Settings) },
                         onAbout = { pushPage(Page.About) },
-                        onRoutingRules = { pushPage(Page.RoutingRules) },
                         onTabSelected = { currentTab = it },
                     )
                 }
@@ -158,7 +156,6 @@ private fun RootTabContent(
     onTickets: () -> Unit,
     onSettings: () -> Unit,
     onAbout: () -> Unit,
-    onRoutingRules: () -> Unit,
     onTabSelected: (RootTab) -> Unit,
 ) {
     val onNavSelect: (com.slte.app.ui.v5.NavTab) -> Unit = { navTab ->
@@ -175,6 +172,9 @@ private fun RootTabContent(
         RootTab.Home ->
             DashboardPageContent(
                 mainViewModel = viewModels.main,
+                // 首页节点选择（niuren 定制）：复用节点页同一个 ServerViewModel 实例，
+                // 两处选中态/测速结果天然同步
+                serverViewModel = viewModels.server,
                 mainData = mainData,
                 onRenew = onRenew,
                 onNavSelect = onNavSelect,
@@ -184,7 +184,6 @@ private fun RootTabContent(
             ServerPageContent(
                 serverViewModel = viewModels.server,
                 onUpdateSubscription = viewModels.main::updateSubscription,
-                onRoutingRules = onRoutingRules,
                 onNavSelect = onNavSelect,
             )
 
@@ -218,7 +217,6 @@ private fun LeafPageContent(
     onPendingPaymentConsumed: () -> Unit,
     onBack: () -> Unit,
     onGoToOrders: () -> Unit,
-    onRoutingRules: () -> Unit,
 ) {
     when (leaf) {
         Page.Invite ->
@@ -262,7 +260,14 @@ private fun LeafPageContent(
                 onBack = onBack,
             )
 
-        Page.RoutingRules -> RoutingRulesPageContent(onBack = onBack)
+        Page.RoutingRules ->
+            // 入口已移除（niuren 定制）；保留分支只为兼容升级后残留的已保存页面栈，防崩溃
+            RoutingRulesPageContent(onBack = onBack)
+
+        Page.CustomerService ->
+            // js 客服已按产品要求移除（niuren 定制）；保留枚举值只为兼容升级后残留的
+            // 已保存页面栈防 valueOf 崩溃，此分支渲染为空页并自动弹回
+            LaunchedEffect(Unit) { onBack() }
 
         Page.About -> AboutPageContent(onBack = onBack)
     }

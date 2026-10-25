@@ -325,7 +325,8 @@ const commands = {
     const r = await core.selectNode(name, group);
     // main 告诉渲染层"这次改的是不是主组"：只有主组的出口才等于"当前节点"，
     // 在分流组里换节点不该把首页那张当前节点条改掉（用户第 12 轮第 1 条）。
-    return ok({ node: r.node, group: r.group, main: r.group === core.MAIN_GROUP });
+    // pending = 未连接时先选的节点，连接后会自动应用（用户要求：未连接可先选节点）。
+    return ok({ node: r.node, group: r.group, main: r.group === core.MAIN_GROUP, pending: !!r.pending });
   },
 
   // 「延迟测试」：节点 + 每个策略组都测一遍（用户要求分组那行也显示延迟）
@@ -335,6 +336,12 @@ const commands = {
   },
 
   test_group_delays: async () => ok({ groups: await core.testGroupDelays() }),
+
+  // 节点页单个分组卡上的「测延迟」按钮：只测这一个组，不动别的
+  test_group_delay: async ({ name } = {}) => {
+    if (!name) throw new Error('缺少分组名');
+    return ok({ name, latency: await core.testGroupDelay(name) });
+  },
 
   refresh_subscription: async () => {
     needAuth();
@@ -865,6 +872,111 @@ const commands = {
     if (!url) return fail('面板没有配置 Telegram 群组');
     await shell.openExternal(url);
     return ok({ url });
+  },
+
+  /* ---------- 在线客服（JS 客服）---------- */
+  // 独立小窗口承载：主窗口 CSP 严格禁外联（default-src 'self'），第三方 JS 客服
+  // 脚本没法在主窗口里跑；独立窗口既能整页加载 settings.service_url 指向的客服页，
+  // 没配 URL 时也能退回内置 service.html（工单 + TG 群 + 官网）。
+
+  open_service: async () => {
+    const existing = BrowserWindow.getAllWindows().find((w) => w.__polarisService);
+    if (existing) {
+      if (existing.isMinimized()) existing.restore();
+      existing.focus();
+      return ok();
+    }
+    const win = new BrowserWindow({
+      width: 380,
+      height: 560,
+      minWidth: 320,
+      minHeight: 420,
+      title: '在线客服',
+      autoHideMenuBar: true,
+      backgroundColor: '#F5F5F7',
+      icon: path.join(__dirname, '..', 'src', 'assets', 'p-icon.png'),
+      webPreferences: {
+        preload: path.join(__dirname, 'preload.js'),
+        contextIsolation: true,
+        nodeIntegration: false,
+        sandbox: false,
+        spellcheck: false,
+      },
+    });
+    win.setMenuBarVisibility(false);
+    win.__polarisService = true;
+    win.on('closed', () => { /* 单例靠 getAllWindows 查找，无需额外清理 */ });
+    const url = String(store.get('service_url') || '').trim();
+    if (/^https?:\/\//i.test(url)) {
+      log.info('service window ->', url);
+      await win.loadURL(url);
+    } else {
+      await win.loadFile(path.join(__dirname, '..', 'src', 'service.html'));
+    }
+    return ok({ url: url || 'builtin' });
+  },
+
+  // 内置客服页取联系信息：TG 群 / 官网 / 站点名
+  service_info: async () => {
+    let info = { appName: '', siteUrl: '', telegramUrl: '' };
+    try {
+      const si = await panel.siteInfo();
+      info.appName = si.appName || 'niuren';
+      info.siteUrl = si.appUrl || '';
+      info.telegramUrl = si.telegramUrl || (await panel.telegramLink()) || '';
+    } catch (e) {
+      log.warn('service_info failed:', e && e.message);
+    }
+    return ok(info);
+  },
+
+  // 内置客服页「提交工单」：关掉客服窗口，把主窗口导航到工单页
+  service_go_tickets: async () => {
+    const svc = BrowserWindow.getAllWindows().find((w) => w.__polarisService);
+    if (svc && !svc.isDestroyed()) svc.close();
+    const main = BrowserWindow.getAllWindows().find((w) => !w.__polarisService && !w.isDestroyed());
+    if (main) {
+      if (main.isMinimized()) main.restore();
+      main.focus();
+    }
+    ui.navigate('tickets');
+    return ok();
+  },
+
+  // 清理缓存：data/cache（geo/规则下载暂存等）+ Electron 会话的 HTTP 缓存。
+  // 不动 config.yaml / credentials.dat / settings.json / cache.db（那是内核的
+  // fakeip 与节点选择记忆，删了会掉登录态、丢节点选择）。
+  clear_cache: async () => {
+    const dirSize = (d) => {
+      let total = 0;
+      const walk = (p) => {
+        let st;
+        try { st = fs.statSync(p); } catch (_) { return; }
+        if (st.isDirectory()) {
+          let list = [];
+          try { list = fs.readdirSync(p); } catch (_) { return; }
+          for (const n of list) walk(path.join(p, n));
+        } else if (st.isFile()) total += st.size;
+      };
+      try { walk(d); } catch (_) {}
+      return total;
+    };
+    const before = dirSize(paths.cache());
+    try {
+      fs.rmSync(paths.cache(), { recursive: true, force: true });
+      fs.mkdirSync(paths.cache(), { recursive: true });
+    } catch (e) {
+      log.warn('clear cache dir failed:', e && e.message);
+    }
+    try {
+      const { session } = require('electron');
+      if (session && session.defaultSession) await session.defaultSession.clearCache();
+    } catch (e) {
+      log.warn('clear session cache failed:', e && e.message);
+    }
+    const freed = Math.max(0, before);
+    log.info(`cache cleared: ${fmt.bytes(freed)} from ${paths.cache()}`);
+    return ok({ freed });
   },
 
   export_logs: async () => {

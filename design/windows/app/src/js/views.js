@@ -214,13 +214,72 @@
     </div>`;
   }
 
+  /**
+   * 首页「节点选择」卡：在主页直接点选主组（🚀 节点选择）里的出口，不必进「策略」页。
+   * 成员渲染与节点页 memberRow 完全同口径（同一套 .node-row / 国旗 / 延迟徽章 / 选中 radio），
+   * 点选事件由 app.js 统一绑定（与节点页同一套 api.selectNode 调用）。
+   * 未连上、主组还没起来时退回扁平节点列表，和节点页未连接兜底一致。
+   */
+  function homeNodeCard(s) {
+    const groupNames = new Set((s.groups || []).map((g) => g.name));
+    const primary = (s.groups || []).find((g) => g.primary);
+    const q = (s.nodeFilter || "").toLowerCase();
+    const hit = (v) => !q || String(v).toLowerCase().includes(q);
+
+    const memberRow = (name, now, groupName) => {
+      const attr = `data-node="${h(name)}"${groupName ? ` data-node-group="${h(groupName)}"` : ""} style="cursor:pointer"`;
+      const radio = `<span class="radio${name === now ? " sel" : ""}"></span>`;
+      const exitLabel = EXIT_LABEL[name];
+      if (exitLabel) {
+        return `<div class="node-row" ${attr}><span class="nm">${h(exitLabel)}</span>${badge("不需要", "b-gray")}${radio}</div>`;
+      }
+      if (groupNames.has(name)) {
+        const label = name === (primary ? primary.name : "") ? `跟随「${name}」` : name;
+        return `<div class="node-row" ${attr}><span class="nm">${h(label)}</span>${badge("策略组", "b-blue")}${badge("自动", "b-gray")}${radio}</div>`;
+      }
+      const n = s.nodes.find((x) => x.name === name) || { name, region: "", latency: -1, offline: false };
+      return `<div class="node-row" ${attr}>${flagImg(codeOf(n))}<span class="nm">${h(n.name)}</span>${badge(n.region, "b-blue")}${latBadge(n.latency, n.offline)}${radio}</div>`;
+    };
+
+    const memberNames = (g) => (g.options || [])
+      .filter((n) => n !== g.name && !(n === "故障转移" && g.now !== "故障转移"));
+
+    let body;
+    if (primary && primary.options && primary.options.length) {
+      const members = memberNames(primary)
+        .filter((name) => hit(name) || hit((s.nodes.find((x) => x.name === name) || {}).region))
+        .map((name) => memberRow(name, primary.now, primary.name));
+      body = members.length ? members.join("") : empty("没有匹配的节点", "换个关键词试试");
+    } else if (s.nodes && s.nodes.length) {
+      const flat = s.nodes.filter((n) => hit(n.name) || hit(n.region));
+      body = flat.length
+        ? flat.map((n) => memberRow(n.name, s.node, "")).join("")
+        : empty("没有匹配的节点", "换个关键词试试");
+    } else {
+      body = empty("还没有节点数据", s.subError || "点右上角「刷新订阅」拉取节点");
+    }
+
+    const sub = primary
+      ? (primary.count ? primary.count + " 个可选出口 · " : "") + "当前：" + h(primary.now || "—")
+      : "当前：" + h(s.node || "未选择");
+
+    return `<div class="card node-select-card">
+      <div class="acc-head" style="cursor:pointer" data-click="nav-nodes">
+        <div><div class="acc-title" style="font-size:15px">节点选择</div>
+        <div class="acc-sub">${sub}</div></div>
+        <span class="chev">›</span>
+      </div>
+      <div class="acc-body node-select-list">${body}</div>
+    </div>`;
+  }
+
   Views.home = (s) => {
     const st = s.settings || {};
     const noNodes = !(s.nodes && s.nodes.length);
     const stText = s.busy ? "连接中…" : noNodes ? "还没有节点" : s.connected ? "已连接" : "未连接";
     const nodeText = s.connected
       ? (s.node || "未选择节点")
-      : (noNodes ? "先在「策略」页刷新订阅" : "点右侧按钮开始连接");
+      : (noNodes ? "先在「节点」页刷新订阅" : "点右侧按钮开始连接");
     const latency = s.connected && s.latency ? s.latency + " ms" : "—";
     const pts = recentPoints(s);
     const downs = pts.map((p) => Number(p.down) || 0);
@@ -228,6 +287,13 @@
     const plan = planReady(s);
     const pct = plan ? fmt.percent(s.plan.used, s.plan.total) : 0;
     const panelHost = String(st.panel_url || "").replace(/^https?:\/\//, "").replace(/\/.*$/, "");
+    // 「面板」格点击直接跳浏览器：有完整地址用完整地址，只配了域名就补 https://
+    const panelUrl = /^https?:\/\//i.test(String(st.panel_url || ""))
+      ? String(st.panel_url) : (st.panel_url ? "https://" + String(st.panel_url) : "");
+    // 首页那格显示**站点名称**而不是域名：面板 /guest/comm/config 有名字就用名字；
+    // 面板没给（appName 退回成了域名）或还没取到时，显示应用名兜底。
+    const siteName = (s.siteInfo && s.siteInfo.appName && s.siteInfo.appName !== panelHost)
+      ? s.siteInfo.appName : "niuren";
     const peak = Math.max.apply(null, downs.concat(ups).concat([0])) || 1;
     const bars = pts.length
       ? pts.map((p) => {
@@ -236,16 +302,43 @@
         return `<i class="${v > 0 ? "" : "zero"}" style="height:${hgt}%" title="${h(p.label || "")}"></i>`;
       }).join("")
       : "";
+    // 标题下方那条滚动公告：滚动的是公告**正文内容**（Markdown 去符号折叠成一行），
+    // 标题只作为前缀；点击弹出最新一条的公告详情（数据没回来或没有公告就不渲染）。
+    const nmList = (s.notices || []).slice(0, 3);
+    const nmText = (() => {
+      const mdPlain = (v) => String(v || "")
+        .replace(/!\[[^\]]*\]\([^)]*\)/g, "")      // 图片去掉
+        .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")   // 链接只留文字
+        .replace(/^\s{0,3}#{1,6}\s+/gm, "")        // 标题符号
+        .replace(/[*_~`>]+/g, "")                  // 强调/引用/代码符号
+        .replace(/\s+/g, " ")
+        .trim();
+      const parts = nmList.map((n) => {
+        const body = mdPlain(n.body);
+        const text = body || (n.title || "（无内容）");
+        return `${n.date ? "[" + n.date + "] " : ""}${text}`;
+      });
+      let text = parts.join("　　　·　　　");
+      if (text.length > 600) text = text.slice(0, 600) + "…";
+      return text;
+    })();
+    const noticeMarquee = nmList.length ? `
+  <div class="notice-marquee" id="notice-marquee" title="点击查看公告详情">
+    <span class="nm-icon">📢</span>
+    <div class="nm-track"><div class="nm-inner"><div class="nm-scroll">${h(nmText)}</div><div class="nm-scroll">${h(nmText)}</div></div></div>
+    <span class="nm-arrow">›</span>
+  </div>` : "";
     return `
   <div class="page-head">
     <div>
-      <div class="page-title">活动</div>
+      <div class="page-title">连接</div>
       <div class="page-sub">${s.connected ? "已连接到 " + h(s.node || "节点") : "当前未连接，代理未生效"}</div>
     </div>
     ${pills(s)}
   </div>
+  ${noticeMarquee}
   <div class="runtime-context">
-    <div class="runtime-cell"><span>面板</span><strong>${h(panelHost || "未配置")}</strong></div>
+    <div class="runtime-cell"${panelUrl ? ` id="panel-link" style="cursor:pointer" title="在浏览器打开面板"` : ""}><span>面板</span><strong>${h(siteName || "niuren")}</strong></div>
     <div class="runtime-cell"><span>订阅更新</span><strong>${h(fmt.relativeTime(st.subscription_updated_at))}</strong></div>
     <div class="runtime-cell"><span>出站模式</span><strong>${h(s.mode || "规则模式")}</strong></div>
     <div class="runtime-cell"><span>本次会话</span><strong id="live-uptime">${h(s.uptime)}</strong></div>
@@ -259,7 +352,7 @@
             <div class="metric-big" style="font-size:24px;line-height:30px">${stText}</div>
             <div class="metric-sub">${h(nodeText)}</div>
           </div>
-          <button class="power-btn${s.connected ? " on" : ""}${s.busy ? " busy" : ""}" id="power" title="${noNodes ? "还没有节点，请先在「策略」页刷新订阅" : s.connected ? "断开" : "连接"}"${s.busy || noNodes ? " disabled" : ""}>
+          <button class="power-btn${s.connected ? " on" : ""}${s.busy ? " busy" : ""}" id="power" title="${noNodes ? "还没有节点，请先在「节点」页刷新订阅" : s.connected ? "断开" : "连接"}"${s.busy || noNodes ? " disabled" : ""}>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 3v9"/><path d="M6.3 6.5a8 8 0 1 0 11.4 0"/></svg>
           </button>
         </div>
@@ -296,7 +389,7 @@
         </div>
         <div class="row" data-click="nav-routing" style="padding-left:0;padding-right:0">
           <div class="k"><span>分流规则</span></div>
-          <div class="v"><span>${(s.rulesets && s.rulesets.total) || 0} 组内置</span><span class="chev">›</span></div>
+          <div class="v">${(s.rulesets && s.rulesets.custom || []).length ? `<span>${(s.rulesets && s.rulesets.custom || []).length} 组自定义</span>` : ""}<span class="chev">›</span></div>
         </div>
       </div>
     </div>
@@ -322,6 +415,7 @@
         <div class="bar-chart">${bars || '<i class="zero" style="height:3%"></i>'}</div>
         <div class="chart-axis"><span>较早</span><span>${h((pts.length ? (pts[pts.length - 1].label || "") : "") || "现在")}</span></div>
       </div>
+      ${homeNodeCard(s)}
     </div>
   </div>`;
   };
@@ -344,9 +438,10 @@
     // 结构组（兜底组 🐟 漏网之鱼、自动选择、故障转移、GLOBAL）只是配置骨架，不是给用户选的分类
     const groups = (Array.isArray(s.groups) ? s.groups : []).filter((g) => !g.builtin && !g.structural);
     const open = s.openGroups || {};
-    // 进节点页时全部折叠，展开状态只认显式记过的那一个（用户第 12 轮第 4 条）。
-    // 旧代码"没点过就默认展开第一个"，于是每次进页都自己弹开一张卡、切页回来也恢复不了。
-    const isOpen = (name) => !!open[name];
+    // 进节点页时：主组「🚀 节点选择」**默认展开**（用户要求"这个默认是打开"），
+    // 其余分组默认折叠。展开状态只认显式记过的值 —— 主组没被点过（undefined）就当展开，
+    // 用户点过收起会记 false，保持收起；其他分组仍是"没点过就折叠"。
+    const isOpen = (name) => name === primaryName ? open[name] !== false : !!open[name];
 
     // 成员名的种类（安卓端 KernelProxyGroup.memberKindOf 同口径）：
     // 名字同时也是策略组 → 组出口；DIRECT/REJECT 这类 → 内置出口；其余 → 真实节点。
@@ -392,7 +487,9 @@
           <div class="acc-head" data-acc="${h(g.name)}"${g.primary ? ' data-acc-primary="1"' : ""} style="cursor:pointer">
             <div><div class="acc-title" style="font-size:15px">${h(g.name)}</div>
             <div class="acc-sub">${g.count ? g.count + " 个可选出口 · " : ""}当前：${h(g.now || "—")}</div></div>
-            <div style="display:flex;align-items:center;gap:10px">${groupBadge(g)}
+            <div style="display:flex;align-items:center;gap:10px">
+            <button class="btn btn-outline btn-sm" style="height:28px;padding:0 12px;font-size:12px" data-grouptest="${h(g.name)}"${s.testing ? " disabled" : ""}>${s.testing ? "测试中…" : "测延迟"}</button>
+            ${groupBadge(g)}
             <span class="chev${opened ? " open" : ""}" style="font-size:20px">›</span></div>
           </div>
           ${opened ? `<div class="acc-body">${members.length ? members.join("") : empty("没有匹配的节点", "换个关键词试试")}</div>` : ""}
@@ -406,7 +503,7 @@
               : empty("还没有节点数据", s.subError || "点右上角「刷新订阅」拉取节点"))}
         </div>`;
 
-    return head("策略", `${s.nodes.length} 个节点${groups.length ? " · " + groups.length + " 个分组" : ""}`,
+    return head("节点", `${s.nodes.length} 个节点${groups.length ? " · " + groups.length + " 个分组" : ""}`,
       `<span class="search-wrap"><input class="search" id="node-search" placeholder="搜索节点" value="${h(s.nodeFilter)}"></span>` +
       `<button class="btn btn-outline btn-sm" style="height:40px" data-click="nav-routing">分流规则</button>` +
       `<button class="btn btn-outline btn-sm" style="height:40px" id="btn-speedtest"${s.testing ? " disabled" : ""}>${s.testing ? "测试中…" : "延迟测试"}</button>` +
@@ -582,18 +679,16 @@
 
   Views.routing = (s) => {
     const rs = s.rulesets || {};
-    const builtin = Array.isArray(rs.groups) ? rs.groups : [];
     const custom = Array.isArray(rs.custom) ? rs.custom : [];
-    const onCount = builtin.filter((g) => g.enabled).length;
     const customOn = custom.filter((g) => g.enabled).length;
     const localOn = rs.on !== false;
-    return head("分流规则", "与手机端同一套本地方案，自定义规则优先于内置分类",
+    return head("分流规则", "自定义分流规则，优先于默认规则生效",
       `<button class="btn btn-outline btn-sm" style="height:40px" id="btn-routing-reset">恢复出口</button>`) +
       `<div class="section-label">分流方案</div>` +
       `<div class="card">` +
       `<div class="row"><div class="k"><span class="mini-icon" style="background:#0A84FF">🧭</span>` +
       `<span style="display:flex;flex-direction:column"><span>使用本地分流方案</span>` +
-      `<span style="font-size:11px;color:var(--text3);margin-top:2px">屏蔽面板下发的分流规则，只用下面这套内置分类</span></span></div>` +
+      `<span style="font-size:11px;color:var(--text3);margin-top:2px">屏蔽面板下发的分流规则，使用下面的自定义分流方案</span></span></div>` +
       `<div class="v"><div class="switch${localOn ? " on" : ""}" data-click="local-routing"></div></div></div>` +
       (localOn ? "" : `<div class="row"><div class="k"><span style="color:var(--text3);font-size:12px">已关闭：面板自带的分流规则正在生效</span></div></div>`) +
       `</div>` +
@@ -615,15 +710,7 @@
           rs.hidden.map((x) => `<div class="row"><div class="k"><span>${h(x && x.name ? x.name : "(无名)")}</span></div>` +
             `<div class="v"><span style="font-size:11px;color:var(--text3)">${x && x.reason === "reserved" ? "与内置组同名" : "名字或规则不可用"}</span></div></div>`).join("") +
           `</div>`
-        : "") +
-      `<div class="section-label">内置分流 · 规则库每 12 小时自动更新 · 已启用 ${onCount}/${rs.total || builtin.length}</div>` +
-      `<div class="card">` +
-      (builtin.length
-        ? builtin.map((g) => rulesetRow(g, { drag: true })).join("") +
-          `<div class="row"><div class="k"><span>恢复默认开关与顺序</span></div>` +
-          `<div class="v"><button class="btn btn-outline btn-sm" id="btn-ruleset-reset">恢复默认</button></div></div>`
-        : empty("没有内置分流规则", "缺少 resources/rules 规则集，请重新解压完整目录")) +
-      `</div>`;
+        : "");
   };
 
   /* ---------------- 设置 ---------------- */
@@ -639,9 +726,11 @@
     </div>
     <div class="section-label">连接</div><div class="card">
       ${rowSwitch("系统代理", "sys_proxy", s.settings.sys_proxy, ["⇄", "#7aa5f8"])}
-      ${row("本机代理端口", s.settings.mixed_port
-        ? `127.0.0.1:${h(s.settings.mixed_port)}`
-        : `自动（当前 ${s.settings.running_port ? h(s.settings.running_port) : "未运行"}）`,
+      ${row("本机代理端口", s.settings.tun_mode
+        ? "TUN 接管（无独立代理端口）"
+        : (s.settings.mixed_port
+          ? `127.0.0.1:${h(s.settings.mixed_port)}`
+          : `自动（当前 ${s.settings.running_port ? h(s.settings.running_port) : "未运行"}）`),
       { click: "set-port", icon: ["⇲", "#5ac8fa"] })}
       ${rowSwitch("TUN 模式", "tun_mode", s.settings.tun_mode, ["≋", "#af8cf8"])}
       ${row("TUN 堆栈", h((TUN_STACKS[s.settings.tun] || s.settings.tun).split("（")[0]), { click: "set-tun-stack" })}
@@ -677,9 +766,10 @@
         ? err(checkFailText(s.settings.update_check_failed) + "（上次检查于 " + new Date(Number(s.settings.update_checked_at) || Date.now()).toLocaleString() + "）")
         : ""}
       ${s.settings.update_available ? shaNotice(s.settings.update_sha_state, s.settings.update_sha_reason, s.settings.update_sha_missing_streak) : ""}
-      ${(s.appInfo && s.appInfo.last_kernel_verify && s.appInfo.last_kernel_verify.state && s.appInfo.last_kernel_verify.state !== "ok")
-        ? err("内核启动校验未执行（不计为通过）：" + (s.appInfo.last_kernel_verify.reason || "未知原因"))
+      ${(s.appInfo && s.appInfo.last_kernel_verify && s.appInfo.last_kernel_verify.state === "failed")
+        ? err("内核校验失败：" + (s.appInfo.last_kernel_verify.reason || "未知原因"))
         : ""}
+      ${row("清理缓存", "", { chev: false, click: "clear-cache" })}
       ${row("导出日志", "", { chev: false, click: "export-logs" })}
       ${row("开源许可", "GPL-3.0", { click: "license" })}
       ${row("运行模式", s.appInfo.portable ? "便携版（数据在程序目录）" : "标准版", { chev: false })}
@@ -689,7 +779,7 @@
         ? row("残留内核", s.leftoverKernel.map((x) => "PID " + x.pid).join("、") + "（上次退出没清掉）", { chev: true, click: "cleanup-leftover" })
         : ""}
     </div>
-    <div style="text-align:center;font-size:12px;color:var(--text3);margin:18px 0 6px">Polaris ${h(s.settings.version)} · 不采集任何用户数据</div>
+    <div style="text-align:center;font-size:12px;color:var(--text3);margin:18px 0 6px">niuren ${h(s.settings.version)} · 不采集任何用户数据</div>
   </div>`;
 
   /* ---------------- 我的 ---------------- */
@@ -766,13 +856,12 @@
   Views.login = (s) => authShell(`
     <img class="app-icon" src="assets/p-icon.png" alt="">
     <h1>欢迎回来</h1><div class="sub">${h(s.siteInfo.appDescription || "登录以同步您的套餐与节点")}</div>
-    <input class="field" id="login-panel" placeholder="面板地址 https://" value="${h(s.settings.panel_url || "")}">
     <input class="field" id="login-email" placeholder="邮箱" value="${h(s.settings.last_email || "")}">
     <input class="field" id="login-pass" type="password" placeholder="密码">
     ${err(s.authError, "auth-err")}
     <button class="btn btn-primary" id="btn-login" style="width:100%;height:48px;font-size:15px">登录</button>
     <div class="auth-links"><span data-nav="register">注册账号</span><span data-nav="forgot">忘记密码</span></div>
-    ${s.settings.version ? `<div class="auth-ver">Polaris ${h(s.settings.version)}</div>` : ""}`);
+    ${s.settings.version ? `<div class="auth-ver">niuren ${h(s.settings.version)}</div>` : ""}`);
 
   Views.register = (s) => authShell(`
     <img class="app-icon" src="assets/p-icon.png" alt="">
@@ -951,7 +1040,7 @@
     notice: (n) => `<div class="overlay" data-overlay><div class="dialog">
       <h2>${h(n.title)}</h2><div class="dsub">${h(n.date)}</div>
       <div class="md" style="max-height:340px;overflow:auto">${md(n.body || "（无内容）")}</div>
-      <button class="btn btn-primary" data-overlay-close style="width:100%;height:44px;margin-top:20px">知道了</button>
+      <button class="btn btn-primary" id="btn-notice-read" style="width:100%;height:44px;margin-top:20px">已读</button>
     </div></div>`,
 
     ticketDetail: (t) => `<div class="overlay" data-overlay><div class="dialog">
@@ -1039,9 +1128,9 @@
     port: (s) => `<div class="overlay" data-overlay><div class="dialog">
       <h2>本机代理端口</h2>
       <div class="dsub">其它软件要用本机的 127.0.0.1 代理时，在这里指定端口。留空 = 自动挑一个空闲端口。</div>
-      <input class="input" id="port-value" inputmode="numeric" placeholder="例如 7890，留空自动" value="${s && s.mixed_port ? h(s.mixed_port) : ""}">
+      <input class="field" id="port-value" inputmode="numeric" placeholder="例如 7890，留空自动" style="height:44px;margin-bottom:4px" value="${s && s.mixed_port ? h(s.mixed_port) : ""}">
       <div class="err" id="dialog-err"></div>
-      <div class="dsub" style="margin-top:6px">当前运行端口：${s && s.running_port ? h(s.running_port) : "未启动"}${s && s.mixed_port ? "" : "（自动）"}</div>
+      <div class="dsub" style="margin-top:10px">当前运行端口：${s && s.tun_mode ? "TUN 接管（无独立代理端口）" : (s && s.running_port ? h(s.running_port) : "未启动")}${s && s.tun_mode ? "" : (s && s.mixed_port ? "" : "（自动）")}。端口在点击「连接」、内核启动后开始监听；改端口保存后，断开重连即生效。</div>
       <button class="btn btn-primary" id="btn-save-port" style="width:100%;height:44px;margin-top:14px">保存</button>
       <button class="btn" style="width:100%;height:44px;color:var(--text2);background:transparent;margin-top:8px" data-overlay-close>取消</button>
     </div></div>`,
@@ -1065,7 +1154,7 @@
 
     about: (i) => `<div class="overlay" data-overlay><div class="dialog">
       <div style="text-align:center;margin-bottom:12px"><img src="assets/p-icon.png" style="width:56px;height:56px;border-radius:14px"></div>
-      <h2 style="text-align:center">Polaris ${h(i.version)}</h2>
+      <h2 style="text-align:center">niuren ${h(i.version)}</h2>
       <div class="dsub" style="text-align:center">${i.portable ? "便携版" : "标准版"} · Electron ${h(i.electron || "")}</div>
       <div class="code-box" style="text-align:left;font-size:12px">GPL-3.0. 代理内核 mihomo（GPL-3.0）以独立进程随包分发。
 本项目不采集任何用户数据，不上报任何统计。

@@ -183,3 +183,28 @@ async function close(pid, opts = {}) {
 }
 
 module.exports = { owner, close, listeners, alive, nameOf, closeDecision, killReason };
+'use strict';
+/* niuren macOS 适配：端口占用者查询走 lsof，杀进程能力受限，导出保守桩 */
+if (process.platform === 'darwin') {
+  const { execFileSync } = require('child_process');
+
+  function darwinOwner(port) {
+    try {
+      const out = execFileSync('lsof', ['-nP', '-iTCP:' + port, '-sTCP:LISTEN'], { encoding: 'utf8' });
+      const lines = out.split('\n').filter((l) => l.trim() && !l.startsWith('COMMAND'));
+      if (!lines.length) return null;
+      const parts = lines[0].split(/\s+/);
+      return { pid: Number(parts[1]), name: parts[0] || '' };
+    } catch (_) { return null; }
+  }
+
+  module.exports = {
+    owner: darwinOwner,
+    close: async () => false,
+    listeners: () => [],
+    alive: () => false,
+    nameOf: () => '',
+    closeDecision: () => null,
+    killReason: () => '',
+  };
+}

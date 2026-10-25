@@ -10,7 +10,9 @@ html, body { height: 100%; overflow: hidden; }
 .app-window { position: relative; }
 
 /* ---- 拖动：无边框窗口必须显式声明可拖区域 ---- */
-.window-drag-region,
+/* 注意：.window-drag-region 本身要在 design.css 里保持 -webkit-app-region: drag，
+ * 这里只把"不该可拖"的容器排除掉，千万别把 drag 区也拉进 no-drag，
+ * 否则整窗拖不动（design.css 与 shell.css 同特异性，后加载的 shell.css 会覆盖）。 */
 .app-sidebar,
 .page-head { -webkit-app-region: no-drag; }
 

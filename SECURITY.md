@@ -6,7 +6,7 @@ Polaris 是基于 mihomo 内核的开源 Android 代理客户端。我们重视�
 
 | 版本 | 安全支持 |
 |------|---------|
-| 最新 Release（见 [Releases](https://github.com/ipevel/polaris/releases)） | ✅ 接收安全更新 |
+| 最新 Release（见 [Releases](https://github.com/xbzyz/niuren/releases)） | ✅ 接收安全更新 |
 | 旧版本与已下线的桌面端历史 | ❌ 请升级至最新版 |
 
 - **支持对象**：本仓库代码——Android 应用层（`app/`）、内核栈集成（`kernel-*`）与 GitHub Actions 工作流。
@@ -17,7 +17,7 @@ Polaris 是基于 mihomo 内核的开源 Android 代理客户端。我们重视�
 
 **请勿通过公开 Issue 报告安全漏洞。** 请使用 GitHub 私有渠道：
 
-1. **GitHub 安全公告（推荐）**：[Security → Report a vulnerability](https://github.com/ipevel/polaris/security/advisories/new)
+1. **GitHub 安全公告（推荐）**：[Security → Report a vulnerability](https://github.com/xbzyz/niuren/security/advisories/new)
 2. 如不可用，可在任意 Issue 中仅留联系方式，由维护者私下跟进（请勿在正文中写出漏洞细节）。
 
 报告时请尽量包含：

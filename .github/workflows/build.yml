@@ -218,7 +218,7 @@ jobs:
           SHA = os.environ["SHA"]
 
           # 三条 required 的字符串与 main 分支保护 required_status_checks.contexts 逐字一致
-          # （2026-10-15 用 GET /repos/ipevel/polaris/branches/main/protection 读回核对）。
+          # （2026-10-15 用 GET /repos/xbzyz/niuren/branches/main/protection 读回核对）。
           # 改名即读不到 —— 读不到一律 fail-closed。
           REQUIRED = [
               "版本门禁自测",
@@ -699,7 +699,7 @@ jobs:
           # 发布流程只负责把历史遗留的 update_* 字段置空，不再写入版本号/直链/校验和。
           # 远程配置源与 GitHub 域名仍需进编译期白名单，否则 RemoteConfigParser
           # 会静默拒绝远端配置（SEC-2 教训）。
-          POLARIS_REMOTE_CONFIG_URLS: ${{ inputs.remoteConfigUrls != '' && inputs.remoteConfigUrls || 'https://raw.githubusercontent.com/ipevel/polaris/main/config/remote.json' }}
+          POLARIS_REMOTE_CONFIG_URLS: ${{ inputs.remoteConfigUrls != '' && inputs.remoteConfigUrls || 'https://raw.githubusercontent.com/xbzyz/niuren/main/config/remote.json' }}
           POLARIS_ALLOWED_DOMAINS: ${{ inputs.allowedDomains != '' && inputs.allowedDomains || 'github.com,raw.githubusercontent.com,objects.githubusercontent.com' }}
 
           POLARIS_VERSION_NAME: ${{ inputs.versionName }}
@@ -730,7 +730,7 @@ jobs:
         if: inputs.buildType == 'release'
         run: |
           set -e
-          APK="app/build/outputs/apk/release/Polaris-${{ inputs.versionName }}.apk"
+          APK="app/build/outputs/apk/release/niuren-${{ inputs.versionName }}.apk"
           if [ ! -f "$APK" ]; then
             echo "::error::未找到 APK：$APK"
             ls -R app/build/outputs/apk || true

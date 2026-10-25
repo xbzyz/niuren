@@ -22,7 +22,12 @@ import com.slte.app.kernel.awaitTunnelReady
 import com.slte.app.kernel.cachedSpeedResults
 import com.slte.app.kernel.ensureGlobalSelection
 import com.slte.app.kernel.fetchPublicIp
+import com.slte.app.kernel.PrimaryGroupName
+import com.slte.app.kernel.primaryGroupOf
+import com.slte.app.kernel.proxyGroups
 import com.slte.app.kernel.runAutoSpeedTest
+import com.slte.app.kernel.selectAuto
+import com.slte.app.kernel.selectPrimary
 import com.slte.app.kernel.serverInfo
 import com.slte.app.kernel.trafficNow
 import com.slte.app.kernel.trafficTotal
@@ -64,6 +69,13 @@ constructor(
 ) : ViewModel() {
     private val _data = MutableStateFlow(DashboardData())
     val data: StateFlow<DashboardData> = _data.asStateFlow()
+
+    /**
+     * 首页公告（niuren 定制）：登录后拉一次面板公告，供首页跑马灯 + 最新未读弹窗使用。
+     * 失败静默为空列表——公告是增强信息，不该在首页弹错误打扰用户（公告列表页有自己的错误态）。
+     */
+    private val _homeNotices = MutableStateFlow<List<com.slte.app.domain.model.Notice>>(emptyList())
+    val homeNotices: StateFlow<List<com.slte.app.domain.model.Notice>> = _homeNotices.asStateFlow()
 
     private var autoTested = false
     private var tunnelWatchJob: Job? = null
@@ -117,6 +129,14 @@ constructor(
                 if (kernelProxy.warmUp()) return@launch
                 delay(1000)
             }
+        }
+
+        // 首页公告：拉一次（公告列表页进页时还会刷新，这里只为首页跑马灯/弹窗供数）
+        viewModelScope.launch {
+            runCatching { subscribeRepository.fetchNotices() }
+                .onSuccess { result ->
+                    result.getOrNull()?.let { _homeNotices.value = it }
+                }
         }
     }
 
@@ -285,12 +305,17 @@ constructor(
                             )
                         }
                         fallbackDns.clearCache()
+                        // 重放前先看有没有手动选择：重放成功后自动测速不得再
+                        // selectAuto 覆盖（否则连接后节点被打回最快节点，
+                        // 真机反馈"选的是 [直]3美国，连接后变成 [直]1德国"）
+                        val hadManualSelection = sessionStore.getPendingNode() != null
+                        applyPendingNodeSelection()
                         if (!autoTested) {
                             autoTested = true
                             // 直连模式没有策略组可测（内核在 Direct 下 QueryProxyGroupNames
                             // 恒返回空），跑自动测速只会空转重试 ~27s，直接跳过。
                             if (kernelProxy.proxyMode() != Constants.PROXY_MODE_DIRECT) {
-                                kernelProxy.runAutoSpeedTest()
+                                kernelProxy.runAutoSpeedTest(autoSelect = !hadManualSelection)
                             }
                         }
                         refreshKernelInfo()
@@ -303,13 +328,45 @@ constructor(
     }
 
     /**
+     * 应用「未连接时预选的节点」（niuren 定制，与桌面端同口径）：
+     * 内核没起来时点节点只是把选择记在 SessionStore，这里在连接就绪后补上。
+     *
+     * pending 语义是「用户最近一次手动选择」（连接中手动选也会持久化，见
+     * ServerViewModel），所以重放后**不清除**——每次连接都恢复它，直到用户
+     * 改选别的。主组名不硬编码：真实主组可能叫「niuren」，patch 字面量
+     * PrimaryGroupName 查无此组 → 重放静默失败 → 连接后落到第 1 个节点
+     * （真机反馈"选 3 变 1"）。重放失败兜底 selectAuto，别让连接停在默认节点。
+     */
+    private suspend fun applyPendingNodeSelection() {
+        val pending = sessionStore.getPendingNode() ?: return
+        // 连接刚就绪时内核组列表可能还没物化好（proxyGroups 查空）：拿不到真实
+        // 主组名就轮询等待，别立刻回退字面量 PrimaryGroupName——那个组在用户
+        // 配置里不存在，patch 必败 → 兜底 selectAuto 把用户选择打回最快节点，
+        // 表现就是"选 3 连接后变 1"（真机反馈）。
+        // 主组（如 niuren）的成员是「自动选择」子组，真实节点挂在子组下；
+        // 连接就绪重放时也必须解析出承载该真实节点的组，否则 patch 主组必败
+        // → 兜底 selectAuto 把用户选择打回最快节点（真机反馈"选 3 连接后变 1"）。
+        var resolved: String? = null
+        repeat(PENDING_GROUP_RESOLVE_ATTEMPTS) {
+            resolved = com.slte.app.kernel.resolveCarryingGroup(kernelProxy.proxyGroups(), pending)
+            if (resolved != null) return@repeat
+            delay(PENDING_GROUP_RESOLVE_INTERVAL_MS)
+        }
+        val group = resolved ?: PrimaryGroupName
+        val ok = kernelProxy.selectPrimary(group, pending)
+        if (!ok) {
+            kernelProxy.selectAuto()
+        }
+        AppLog.i("Polaris-Main", "pending node applied: $pending group=$group ok=$ok")
+    }
+
+    /**
      * 本地分流被内核降级（生成失败 / 面板节点名与保留组名冲突）时提示用户。
      * 内核会写 `routing-degraded.json`，成功应用时删除，所以「文件在」= 当前
      * 处于降级状态（分流开关看起来开着、实际走面板分流）。不做提示的话用户
      * 只会认为「分流开关坏了」。
      */
-    private fun checkRoutingDegraded() {
-        val degraded = routingStateStore.readDegraded() ?: return
+    private fun checkRoutingDegraded() {        val degraded = routingStateStore.readDegraded() ?: return
         AppLog.w("Polaris-Main", "本地分流已降级: reason=${degraded.reason}")
         routingStateStore.clearDegraded()
         _data.update { it.copy(errorMessageRes = R.string.routing_degraded_notice) }
@@ -471,6 +528,19 @@ constructor(
 
         /** 代理模式切换后等待内核 reload 完成的窗口，过后跑自愈核验 */
         const val RELOAD_SETTLE_MS = 3_000L
+
+        /** 连接就绪重放 pending：等内核组列表物化的轮数（30 × 500ms = 15s 上限）。
+         *
+         * 必须给足：连接刚就绪时内核的组（尤其承载真实节点的「自动选择」子组）
+         * 往往还没物化，[com.slte.app.kernel.resolveCarryingGroup] 找不到承载组就返回
+         * null，这里继续等；等它出现再 patch 才可能成功。此前窗口只有 5s 且
+         * resolveCarryingGroup 会错误地回退主组名（必然 patch 失败），结果就是
+         * "选 [直]3美国 → 连接后变 [直]1德国"。
+         */
+        const val PENDING_GROUP_RESOLVE_ATTEMPTS = 30
+
+        /** 每轮等待间隔 */
+        const val PENDING_GROUP_RESOLVE_INTERVAL_MS = 500L
 
         /** 实时网速采样间隔：每 1s 读一次内核 blip（秒级字节数）与累计流量 */
         const val SPEED_WATCH_INTERVAL_MS = 1_000L

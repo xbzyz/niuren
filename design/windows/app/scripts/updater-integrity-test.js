@@ -40,8 +40,8 @@ check('zip 名对得上', sums.get('Polaris-portable-1.12.1.zip') === A);
 check('二进制标记 * 也能认', sums.get('Polaris-portable-1.12.0.zip') === B);
 check('空文本 = 空表', R.parseSums('').size === 0);
 check('同目录摘要地址可推出',
-  R.sumsUrlFor('https://github.com/ipevel/polaris/releases/download/v1.12.1/Polaris-portable-1.12.1.zip') ===
-  'https://github.com/ipevel/polaris/releases/download/v1.12.1/SHA256SUMS.txt');
+  R.sumsUrlFor('https://github.com/xbzyz/niuren/releases/download/v1.12.1/Polaris-portable-1.12.1.zip') ===
+  'https://github.com/xbzyz/niuren/releases/download/v1.12.1/SHA256SUMS.txt');
 check('地址不合法 → 空串（不抛）', R.sumsUrlFor('not a url') === '');
 
 /* ---------------- 2. 下载后核对 ---------------- */

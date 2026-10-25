@@ -1,10 +1,10 @@
 {
-  "name": "polaris-windows",
-  "productName": "Polaris",
-  "version": "1.12.6",
-  "description": "北辰 Polaris Windows 客户端（便携版）",
+  "name": "niuren-windows",
+  "productName": "niuren",
+  "version": "1.0.0",
+  "description": "niuren Windows 客户端（便携版 / 安装版）",
   "license": "GPL-3.0",
-  "author": "Polaris Contributors",
+  "author": "niuren",
   "private": true,
   "main": "electron/main.js",
   "scripts": {
@@ -57,8 +57,8 @@
     "electron-builder": "26.15.3"
   },
   "build": {
-    "appId": "app.polaris.windows",
-    "productName": "Polaris",
+    "appId": "app.niuren.windows",
+    "productName": "niuren",
     "copyright": "Copyright (c) Polaris Contributors",
     "asar": true,
     "npmRebuild": false,
@@ -92,20 +92,35 @@
         "filter": ["**/*"]
       },
       {
-        "from": "build/portable-readme.txt",
-        "to": "../使用说明.txt"
+        "from": "build/installed.flag",
+        "to": "installed.flag",
+        "filter": ["**/*"]
       }
     ],
     "win": {
       "target": [
         {
-          "target": "zip",
+          "target": "nsis",
           "arch": ["x64"]
         }
       ],
-      "artifactName": "Polaris-portable-${version}.zip",
+      "artifactName": "niuren-setup-${version}.exe",
       "icon": "build/icon.ico"
     },
-    "compression": "maximum"
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "niuren",
+      "menuCategory": false,
+      "deleteAppDataOnUninstall": false,
+      "runAfterFinish": true,
+      "language": "2052",
+      "installerLanguages": ["zh_CN"],
+      "uninstallDisplayName": "niuren ${version}"
+    },
+    "compression": "normal"
   }
 }

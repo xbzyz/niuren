@@ -217,7 +217,10 @@ suspend fun KernelProxy.selectInGroup(
 ): Boolean = safe(false, "selectInGroup") {
     val clash = manager.clash() ?: return@safe false
     val group = clash.queryProxyGroup(groupName, ProxySort.Default)
-    if (!group.type.equals(GROUP_TYPE_SELECTOR, ignoreCase = true)) {
+    // 仅 Selector / URLTest 支持手动固定成员：URLTest 组 patch 后会停止自动切换，
+    // 标准订阅的真实节点就挂在它（自动选择 子组）下，主组 → 自动选择 的嵌套结构里
+    // 手动选节点必须走它；其余类型（Relay / LoadBalance / 未知）不支持手动切换。
+    if (group.type !in setOf(GROUP_TYPE_SELECTOR, GROUP_TYPE_URLTEST)) {
         AppLog.w("Polaris-Kernel", "selectInGroup: 组 $groupName 类型 ${group.type} 不支持手动切换")
         return@safe false
     }
@@ -259,7 +262,23 @@ suspend fun KernelProxy.testGroup(groupName: String): Map<String, Int> = safe(em
         .associate { it.name to resolveDelay(it.delay, hasTestRun = true) }
 }
 
+/**
+ * 内核服务是否可通信（**不要求 VPN 已 RUNNING**）。
+ *
+ * `KernelManager.connected` 只在 TUN 状态 = RUNNING 时为 true，但内核服务进程
+ * 活着时 AIDL 就能通——节点页此刻能显示分组和延迟（内核自带 interval 拨测），
+ * patch 选择器也照样能生效。节点页「未连接先选节点」用它区分：
+ * 服务活着 → 直接下发（即时生效）；进程没起 → 记住选择，连接后自动应用。
+ * 若按 connected 判，会出现"列表看得见、点了没反应"的假死（用户实测反馈）。
+ */
+suspend fun KernelProxy.clashAlive(): Boolean = safe(false, "clashAlive") {
+    manager.clash() != null
+}
+
 private const val GROUP_TYPE_SELECTOR = "Selector"
+
+/** URLTest 自动测速组同样支持手动 PATCH 固定成员（mihomo：patch 后停止自动切换）。标准订阅里真实节点就挂在它下面（主组 → 自动选择 子组），手动选节点必须允许。 */
+private const val GROUP_TYPE_URLTEST = "URLTest"
 
 /** `Clash.queryGroup` 查不到组时返回的哨兵类型（见 `kernel-core/.../core/Clash.kt`）。 */
 private const val UNKNOWN_GROUP_TYPE = "Unknown"
@@ -280,8 +299,26 @@ suspend fun KernelProxy.selectPrimary(
     name: String,
 ): Boolean {
     val ok = selectInGroup(groupName, name)
-    if (ok) patchGlobalIfGlobal(name)
+    if (ok) {
+        // 必须用**解析后的内核名**同步 GLOBAL：GLOBAL 的成员就是内核名（带国旗前缀），
+        // 拿面板订阅名去 patch 会 Set 失败（Go 侧只打日志仍返回 true），全局模式下
+        // 表现为"节点页改选成功、真实出口仍是旧节点"。
+        patchGlobalIfGlobal(resolveProxyName(groupName, name) ?: name)
+    }
     return ok
+}
+
+/**
+ * 解析组内成员的**内核侧名字**（面板订阅名可能只差国旗/全角等装饰）。
+ * 解析不到返回 null——调用方应退回原名而不是假装成功。
+ */
+internal suspend fun KernelProxy.resolveProxyName(
+    groupName: String,
+    proxyName: String,
+): String? = safe(null, "resolveProxyName") {
+    val clash = manager.clash() ?: return@safe null
+    val group = clash.queryProxyGroup(groupName, ProxySort.Default)
+    NodeNameResolver.resolve(group.proxies.map { it.name }, proxyName)
 }
 
 private const val GLOBAL_GROUP = "GLOBAL"
@@ -384,16 +421,42 @@ internal suspend fun KernelProxy.selectSpecialGroup(
     val selector = selectorGroup() ?: return false
     val target = queryGroupByTypeName(type) ?: nameMatch(*nameKeywords) ?: return false
 
-    val result = clash.patchSelector(selector, target)
-    AppLog.d("Polaris-Kernel", "selectSpecial($type): selector=$selector target=$target result=$result")
-    return result
+    clash.patchSelector(selector, target)
+    // 与 selectInGroup 同口径：patchSelector 的返回值不能作为成功依据
+    // （Go 侧 Set 失败只打日志仍 return true），必须回读 now 确认。否则
+    // 点「自动选择 / 故障转移」会出现"勾选不动、也没有任何报错"。
+    var after = clash.queryProxyGroup(selector, ProxySort.Default).now
+    var attempt = 0
+    while (after != target && attempt < VERIFY_ATTEMPTS) {
+        delay(VERIFY_DELAY_MS)
+        after = clash.queryProxyGroup(selector, ProxySort.Default).now
+        attempt++
+    }
+    val ok = after == target
+    AppLog.d(
+        "Polaris-Kernel",
+        "selectSpecial($type): selector=$selector target=$target after=$after ok=$ok",
+    )
+    return ok
 }
 
 internal suspend fun KernelProxy.patchGlobalIfGlobal(target: String) {
     val clash = manager.clash() ?: return
     if (clash.queryTunnelState().mode != TunnelState.Mode.Global) return
-    val result = clash.patchSelector("GLOBAL", target)
-    AppLog.d("Polaris-Kernel", "patchGlobalIfGlobal: GLOBAL -> $target result=$result")
+    clash.patchSelector(GLOBAL_GROUP, target)
+    // 回读核验：patch 失败时全局模式会静默保持旧出口/DIRECT，用户完全无感知
+    var after = clash.queryProxyGroup(GLOBAL_GROUP, ProxySort.Default).now
+    var attempt = 0
+    while (after != target && attempt < VERIFY_ATTEMPTS) {
+        delay(VERIFY_DELAY_MS)
+        after = clash.queryProxyGroup(GLOBAL_GROUP, ProxySort.Default).now
+        attempt++
+    }
+    if (after != target) {
+        AppLog.w("Polaris-Kernel", "patchGlobalIfGlobal: GLOBAL -> $target 未生效 after=$after")
+    } else {
+        AppLog.d("Polaris-Kernel", "patchGlobalIfGlobal: GLOBAL -> $target ok")
+    }
 }
 
 /**

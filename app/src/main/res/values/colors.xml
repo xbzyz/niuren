@@ -17,4 +17,5 @@
       两个「北辰深空渐变」色，是旧版图标（app/icon-source.png）时代的遗留，
       随图标改版一起成了无人引用的死资源，已删除。
     -->
+    <color name="ic_launcher_background">#EBF2FF</color>
 </resources>

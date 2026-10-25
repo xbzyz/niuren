@@ -88,3 +88,16 @@ function stopProcess(proc, graceMs = 1200) {
 }
 
 module.exports = { status, invalidate, cleanup, stopProcess, ADAPTER };
+'use strict';
+/* niuren macOS 适配：TUN 在 macOS 适配版暂不支持，导出安全桩 */
+if (process.platform === 'darwin') {
+  module.exports = {
+    status: async () => ({ supported: false, enabled: false, reason: 'macOS 适配版暂不支持 TUN 模式，请使用系统代理' }),
+    invalidate: () => {},
+    cleanup: async () => {},
+    stopProcess: async (proc /* , graceMs */) => {
+      try { if (proc && !proc.killed) proc.kill(); } catch (_) {}
+    },
+    ADAPTER: undefined,
+  };
+}

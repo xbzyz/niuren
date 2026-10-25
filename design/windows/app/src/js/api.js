@@ -8,8 +8,15 @@
   const isHost = !!host;
 
   function invoke(cmd, args) {
-    if (!isHost) return Promise.reject(new Error('没有连接到客户端主进程（请用 Polaris.exe 或 npm start 启动）'));
-    return host.invoke(cmd, args || {});
+    if (!isHost) return Promise.reject(new Error('没有连接到客户端主进程（请用 niuren.exe 或 npm start 启动）'));
+    return host.invoke(cmd, args || {}).catch((e) => {
+      const raw = String((e && e.message) || e);
+      // Electron 的 ipcRenderer.invoke 会把主进程抛的错包上一层
+      // "Error invoking remote method 'polaris:invoke': Error: "，
+      // 直接 toast 出来就是一串英文"乱码"。这里把包装剥掉，只留业务错误本身。
+      const msg = raw.replace(/^Error invoking remote method '[^']+':\s*(?:Error:\s*)?/, "");
+      throw new Error(msg || raw);
+    });
   }
 
   async function listMethod(cmd, args) {
@@ -30,6 +37,7 @@
     selectNode: (name, group) => invoke("select_node", { name, group }),
     speedTest: () => invoke("speed_test"),
     testGroupDelays: () => invoke("test_group_delays"),
+    testGroupDelay: (name) => invoke("test_group_delay", { name }),
     refreshSubscription: () => invoke("refresh_subscription"),
     // 登录后/启动时把节点数据准备好（本地没订阅、订阅过期、配置没生成时才真拉）
     ensureSubscription: (arg) => invoke("ensure_subscription", arg || {}),

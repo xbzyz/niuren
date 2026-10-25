@@ -841,7 +841,7 @@ const builder = require('../electron/core/builder');
 
     /* ---------------- 分流规则全本地（用户 2026-10-12：规则必须本地 + 定期自动更新） ---------------- */
     // 内核不再联网拉任何 rule-provider：内置规则全是 type:file，只读本地文件。
-    // 真正需要联网更新的是**分流清单 + geodata 一起**，来源只有 ipevel/polaris-rules 一处，
+    // 真正需要联网更新的是**分流清单 + geodata 一起**，来源只有 xbzyz/niuren-rules 一处，
     // 由 rulesync.js 在启动时 + 每 12 小时拉一次（逐文件核 sha256 后替换）。
     // 这里真跑一次内核，确认：
     // ① 配置里一条 url / interval 都没有；② 每个 provider 都被加载；
@@ -1407,7 +1407,7 @@ const builder = require('../electron/core/builder');
       const st = require('../electron/store');
       const release = require('../electron/core/release');
       const cmpV = require('../electron/util/format').cmpVersion;
-      const DEFAULT_REMOTE = 'https://raw.githubusercontent.com/ipevel/polaris/main/config/remote.json';
+      const DEFAULT_REMOTE = 'https://raw.githubusercontent.com/xbzyz/niuren/main/config/remote.json';
 
       check('默认就有远程配置来源（以前没人写这个键，红点永远不会亮）',
         String(st.get('remote_config_urls') || '') === DEFAULT_REMOTE,
