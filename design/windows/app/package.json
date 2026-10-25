@@ -59,7 +59,7 @@
   "build": {
     "appId": "app.niuren.windows",
     "productName": "niuren",
-    "copyright": "Copyright (c) Polaris Contributors",
+    "copyright": "Copyright (c) niuren Contributors",
     "asar": true,
     "npmRebuild": false,
     "directories": {

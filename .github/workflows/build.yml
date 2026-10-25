@@ -1,8 +1,8 @@
-name: Polaris Build
+name: niuren Build
 
 # 打包并（可选）发布到 GitHub Releases。
 #
-# 用法：Actions → Polaris Build → Run workflow，填参数后运行。
+# 用法：Actions → niuren Build → Run workflow，填参数后运行。
 #   - 只能从 main 分支或 v* 标签触发；其它 ref 会被 release-precheck 直接拒绝。
 #   - 发版前置门禁（release-precheck，fail-closed）：本 commit 上
 #       「版本门禁自测 / 内核 Go 门禁（vet + build + test）/ 质量门禁（test + ktlint + lint）」

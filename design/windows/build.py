@@ -286,9 +286,9 @@ LOGOUT_OVERLAY = """<div class="overlay"><div class="dialog">
 TRAY_HTML = """<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8">
 <link rel="stylesheet" href="../css/design.css"></head><body style="display:block">
 <div class="tray-wrap">
-  <div style="position:absolute;top:60px;left:80px;color:#fff"><div style="font-size:22px;font-weight:800">Polaris Windows 设计稿 · 托盘菜单</div><div style="font-size:14px;opacity:.8">右下角任务栏托盘图标右键菜单</div></div>
+  <div style="position:absolute;top:60px;left:80px;color:#fff"><div style="font-size:22px;font-weight:800">niuren Windows 设计稿 · 托盘菜单</div><div style="font-size:14px;opacity:.8">右下角任务栏托盘图标右键菜单</div></div>
   <div class="tray-menu">
-    <div class="tray-head"><img src="../assets/p-icon.png"><div><div style="font-size:14px;font-weight:700">Polaris</div><div style="font-size:12px;color:var(--green)">● 已连接 · 香港 01</div></div></div>
+    <div class="tray-head"><img src="../assets/p-icon.png"><div><div style="font-size:14px;font-weight:700">niuren</div><div style="font-size:12px;color:var(--green)">● 已连接 · 香港 01</div></div></div>
     <div class="tray-sep"></div>
     <div class="tray-item">🔌 断开连接</div>
     <div class="tray-item">🚀 节点选择 <span style="margin-left:auto;color:var(--text3)">香港 01 ›</span></div>

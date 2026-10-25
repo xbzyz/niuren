@@ -1,6 +1,6 @@
 <div align="center">
 
-# Polaris
+# niuren
 
 [![许可证](https://img.shields.io/badge/许可证-GPL--3.0-blue?style=flat-square)](LICENSE)
 [![Android](https://img.shields.io/badge/Android-28--36-green?style=flat-square)](README.md)
@@ -15,7 +15,7 @@
 
 ## 简介
 
-Polaris 是一款基于 [mihomo](https://github.com/MetaCubeX/mihomo/tree/Alpha) 内核的代理客户端，支持 XiaoV2b / Xboard 面板，登录时自动识别，无需换包。Android 为主客户端；另附 **Windows 便携版**（源码在 `design/windows/app/`，免安装、解压即用、共用同一套面板账号与分流方案）。
+niuren 是一款基于 [mihomo](https://github.com/MetaCubeX/mihomo/tree/Alpha) 内核的代理客户端，支持 XiaoV2b / Xboard 面板，登录时自动识别，无需换包。Android 为主客户端；另附 **Windows 便携版**（源码在 `design/windows/app/`，免安装、解压即用、共用同一套面板账号与分流方案）。
 
 
 ## 下载与安装
@@ -112,7 +112,7 @@ export POLARIS_RELEASE_KEY_PASSWORD=<密码>
 ./gradlew :app:assembleRelease
 ```
 
-> **推送即出包**：每次推送到 main，CI 会把调试包作为 artifact 上传（Actions → run → Artifacts，保留 7 天）。它是 **debug 签名**，无法覆盖已装的正式版；正式分发走 [Releases](https://github.com/xbzyz/niuren/releases)（手动触发 `Polaris Build`）。
+> **推送即出包**：每次推送到 main，CI 会把调试包作为 artifact 上传（Actions → run → Artifacts，保留 7 天）。它是 **debug 签名**，无法覆盖已装的正式版；正式分发走 [Releases](https://github.com/xbzyz/niuren/releases)（手动触发 `niuren Build`）。
 
 > **发版 dispatch 的 versionCode（issue #30）**：必须**显式传仓库声明值**，或**留空由 workflow 读** `app/build.gradle.kts` 的 `slteVersionCode`；两者不相等、或读不到声明值都会**直接红**。不允许 workflow 静默用「epoch 分钟」造一个和仓库不一样的 versionCode（那会让 README 的版本表与实际发布值不一致）。
 
@@ -142,10 +142,10 @@ npm start         # 运行（真实模式：需要已登录面板，没有离线
 
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
-| `POLARIS_APP_NAME` | `Polaris` | 应用显示名 |
-| `POLARIS_APPLICATION_ID` | `com.polaris.app` | 包名 |
-| `POLARIS_VERSION_NAME` | `1.5.15` | 版本名（Release 由 build.yml 传入） |
-| `POLARIS_VERSION_CODE` | `48` | versionCode |
+| `POLARIS_APP_NAME` | `niuren` | 应用显示名 |
+| `POLARIS_APPLICATION_ID` | `com.polaris.app` | 包名（保持不变，避免覆盖安装的更新链路断裂） |
+| `POLARIS_VERSION_NAME` | `1.0.0` | 版本名（Release 由 build.yml 传入） |
+| `POLARIS_VERSION_CODE` | `1000000` | versionCode |
 | `POLARIS_API_BASE_URL` | `https://api.example.com` | 仅作 Retrofit 构造占位，运行时不使用；并入域名白名单 |
 | `POLARIS_API_TYPE` | `xiaov2b` | 遗留变量：仍写入 `BuildConfig.API_TYPE`，运行时不再读取（后端类型登录时自动探测） |
 | `POLARIS_SUBSCRIBE_PATH` | `/api/v1/client/subscribe` | 订阅路径，面板地址 + 该路径 + token 组成订阅源 |
@@ -191,6 +191,6 @@ npm start         # 运行（真实模式：需要已登录面板，没有离线
 
 <div align="center">
 
-**© 2026 Polaris**
+**© 2026 niuren**
 
 </div>
