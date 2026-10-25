@@ -11,7 +11,7 @@ package routing
 //   - GEOIP,CN        → 读随包的 geoip.metadb
 //   - RULE-SET        → 只允许 type:file 的本地清单
 //
-// **规则数据本身是活的**：清单与 geodata 由 xbzyz/niuren-rules 每 15 分钟从上游
+// **规则数据本身是活的**：清单与 geodata 由 xbzyz/niuren 每 15 分钟从上游
 // （ACL4SSR/ACL4SSR 与 MetaCubeX/meta-rules-dat）同步、算 SHA-256 后发布；
 // App 每 12 小时比一次版本号，只在真的变了才下载，校验通过后原子替换并热加载。
 // 这里写的 providers 键名 = 仓库 dist/rules/<键>.list 的文件名，改这里必须同步仓库产出。
@@ -84,7 +84,7 @@ type RuleGroup struct {
 
 // Providers 全部内置规则集，**全部是本地文件 provider（内核只读本地、永不联网）**。
 //
-// 键名 = xbzyz/niuren-rules 仓库 dist/rules/<键>.list 的文件名，也是 RULE-SET 引用名，
+// 键名 = xbzyz/niuren 仓库 dist/rules/<键>.list 的文件名，也是 RULE-SET 引用名，
 // 三处必须是同一个字符串：这里的键、仓库的产出文件名、随包种子文件名。
 // 改这里必须同时改仓库产出与两端种子，否则规则会整组静默失效。
 //

@@ -2659,7 +2659,7 @@ W Mihomo: parse classical rule [URL-REGEX,^https?://int[\w-\.]+iqiyi\.com] error
 脚本 `E:\AI\drop_url_regex.py`，按行首 `URL-REGEX` 过滤、`io.open(..., newline='')` 保住原行尾（安卓 LF / Windows CRLF）。
 
 **后续（2026-10-14，A-61 之后，这条已成历史做法）**：规则来源改成统一从
-`xbzyz/niuren-rules` 懒更新之后，这一刀改在**源头**做了 —— `tools/sync.mjs` 里
+`xbzyz/niuren` 懒更新之后，这一刀改在**源头**做了 —— `tools/sync.mjs` 里
 `UNSUPPORTED_RULE_TYPES = new Set(['URL-REGEX'])` 在合并阶段丢弃，并在人读形态的表头
 如实记账（`丢弃内核不认的 URL-REGEX N 条`）。这样两端、以及两端的老用户，
 下次 12 小时懒更新就自动拿到干净的清单，**不需要再逐端跑脚本**：
@@ -3405,7 +3405,7 @@ routing-sync / **flags(11)** / **flag-row(15)**。`FLAG_CODES` 与
 两套的更新节奏、校验方式、失败处理各不相同，用户看到的却是「一个分流功能」。
 现在合成一套：**全部随同一个仓库走，全部同一条 12 小时节拍，本地种子只是首启的兜底。**
 
-### 仓库与产物（`xbzyz/niuren-rules`）
+### 仓库与产物（`xbzyz/niuren`）
 
 - 上游两条线：ACL4SSR 的分流规则 + MetaCubeX/meta-rules-dat 的 geodata，各自 15 分钟探测，
   有变化才同步（没有变化就等下一次，不产生空提交）。
@@ -3417,8 +3417,8 @@ routing-sync / **flags(11)** / **flag-row(15)**。`FLAG_CODES` 与
 
 ### 客户端（`electron/core/rulesync.js`）
 
-- **双源**：`cdn.jsdelivr.net/gh/xbzyz/niuren-rules@main` → 失败退
-  `raw.githubusercontent.com/xbzyz/niuren-rules/main`。`POLARIS_RULES_BASE` 可强制单源
+- **双源**：`cdn.jsdelivr.net/gh/xbzyz/niuren@main` → 失败退
+  `raw.githubusercontent.com/xbzyz/niuren/main`。`POLARIS_RULES_BASE` 可强制单源
   （自测就是指向本地 HTTP 服务跑的），`POLARIS_RULES_NO_FALLBACK=1` 关掉回退。
 - **懒更新三步**：① `isFresh(dir)` —— 文件齐且 marker 未过期（12h）→ **一个请求都不发**；
   ② 拉 `latest.json`，`version` 与本地 marker 相同 → **只更新时间戳，零下载**；
@@ -3458,7 +3458,7 @@ routing-sync / **flags(11)** / **flag-row(15)**。`FLAG_CODES` 与
 ### 随包 geodata 落后两个多月（规划 §6.2）
 
 三份随包 geodata 的 git blob 停在 2026-08-09（`6fcafbf` 开源那次），文件时间戳停在 09-19。
-`xbzyz/niuren-rules` 的 `geo/` 是活的（上游 MetaCubeX/meta-rules-dat，每天更新），
+`xbzyz/niuren` 的 `geo/` 是活的（上游 MetaCubeX/meta-rules-dat，每天更新），
 且它的 `latest.json` 里每个文件自带 sha256/字节数 —— 仓库与清单自洽。
 
 | 文件 | 旧（随包） | 新（仓库 v4） |
@@ -3486,7 +3486,7 @@ assets（`app/src/main/assets/`）拷到 `resources/geo/`，拷不动才去下�
 
 钉死「只有一套」：运行期代码（`electron/`、`src/js/`，排除 `geosync.js` 自身）
 **剥掉整行注释后**不得出现 `bett-rules` / `appshubcc` / `GeoLite2-ASN`；
-`rulesync.js` 与 `rulesets.js` 必须指向 `xbzyz/niuren-rules`；
+`rulesync.js` 与 `rulesets.js` 必须指向 `xbzyz/niuren`；
 不得有任何运行期模块 require geosync；`resources/rules/` 恰好是 `PROVIDERS` 的 15 个
 `<键>.yaml` 且无 `acl_*.yaml` 残留；geodata 三份在位且非空。
 
@@ -3514,7 +3514,7 @@ bett-rules 拉」来说明改动原因，那是解释不是引用。已做阴性
 
 | 源 | latest.json | VERSION | 清单 ↔ 该源自己的文件 |
 |---|---|---|---|
-| `cdn.jsdelivr.net/gh/xbzyz/niuren-rules@main` | 10224 B，`Age: 15059`（4.2 小时前） | **2**（34 文件） | `streaming.list` **✗ 不符**：声明 `d00842a5…`，实测 `414dfbd1…` |
+| `cdn.jsdelivr.net/gh/xbzyz/niuren@main` | 10224 B，`Age: 15059`（4.2 小时前） | **2**（34 文件） | `streaming.list` **✗ 不符**：声明 `d00842a5…`，实测 `414dfbd1…` |
 | `…@b3729fce`（钉住） | 10862 B，无 `Age`（回源） | **4**（36 文件） | 三份全 ✓ |
 | `raw.githubusercontent.com/…/main`（第二源） | 10862 B | 4 | 三份全 ✓ |
 
@@ -3648,7 +3648,7 @@ Windows 侧规则刷新走 `127.0.0.1:<mixed_port>` 的 CONNECT 隧道（`getVia
 
 ### 2) 随包种子的行尾：包内 CRLF、上游 dist 是 LF（别拿逐字节当门禁）
 
-v1.11.5 便携包里 15 份种子与 `xbzyz/niuren-rules` 的 `dist/rules/*.list`
+v1.11.5 便携包里 15 份种子与 `xbzyz/niuren` 的 `dist/rules/*.list`
 **逐字节不一致（0/15）**，但**行尾归一后 15/15 完全一致**（逐份行数也相同）：
 
 | 事实 | 值 |

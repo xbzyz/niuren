@@ -28,7 +28,10 @@ __pycache__/
 *.pyc
 
 # 构建发布产物
-dist/
+dist/**
+# 例外：规则清单随源码同仓（xbzyz/niuren），需入库供 App 运行期拉取
+!dist/rules/
+!dist/rules/**
 
 # Go 内核构建中间产物（正式产物在 kernel-core/src/main/jniLibs/arm64-v8a/）
 kernel-core/src/main/golang/libclash.so

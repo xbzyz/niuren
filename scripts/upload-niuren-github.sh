@@ -4,7 +4,7 @@
 # ---------------------------------------------------------------------------
 # 一键把「牛人 niuren」上传到 GitHub：
 #   1) 推送源码到 github.com/xbzyz/niuren  (分支 main)
-#   2) 创建 github.com/xbzyz/niuren-rules  (public) 并填充种子规则 + 地理库 + latest.json
+#   2) 创建 github.com/xbzyz/niuren  (public) 并填充种子规则 + 地理库 + latest.json
 #   3) 在 xbzyz/niuren 创建 Release v1.0.0 并上传三端生产产物
 #
 # 前置条件（在本机执行，需要有 github.com 网络访问）：

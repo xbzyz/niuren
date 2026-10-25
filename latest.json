@@ -1,0 +1,109 @@
+{
+  "schema": 1,
+  "version": "1.0.0",
+  "generatedAt": "2026-10-25T06:05:20.707927+00:00",
+  "upstream": {
+    "acl": {
+      "repo": "ACL4SSR/ACL4SSR",
+      "sha": "seed",
+      "date": "seed"
+    },
+    "meta": {
+      "repo": "MetaCubeX/meta-rules-dat",
+      "tag": "seed",
+      "publishedAt": "seed"
+    }
+  },
+  "files": [
+    {
+      "path": "dist/rules/ai.list",
+      "bytes": 1826,
+      "sha256": "184058d368a1ae069f135379a4d1269cd69412e830f956e6c07a3844afb9ff35"
+    },
+    {
+      "path": "dist/rules/apple.list",
+      "bytes": 863,
+      "sha256": "75fdfef0b520da50025b0b1cb68e0148c130cef209bf70f5f4659d31e6828f95"
+    },
+    {
+      "path": "dist/rules/banad.list",
+      "bytes": 15298,
+      "sha256": "2ecd4247c610b534f40533bdaaa5e6360525f0389e8c38b848ab8277c0a2ad82"
+    },
+    {
+      "path": "dist/rules/banprogramad.list",
+      "bytes": 31436,
+      "sha256": "1abadab15fec4f849dcf0d8d4f6c46f3413f2b819bee751cfdd607f1ab565ec4"
+    },
+    {
+      "path": "dist/rules/china-domain.list",
+      "bytes": 17834,
+      "sha256": "c642cfe4c8e4a97a1b28269112850a3d6de64d0c6e65724e9cdfaa9e3a4661de"
+    },
+    {
+      "path": "dist/rules/china-ip.list",
+      "bytes": 322016,
+      "sha256": "b701fd6cdc1b6bdb6258983f31717278a8d234c97d6b4ba83b11906fd3252e15"
+    },
+    {
+      "path": "dist/rules/china-media.list",
+      "bytes": 2834,
+      "sha256": "1806d9aa9cea605d39cf0a39c6d882358b497ca67deee9c49943b1a8dd4594ce"
+    },
+    {
+      "path": "dist/rules/games.list",
+      "bytes": 1974,
+      "sha256": "14bd8de1eb10557c508f2c8a53e4ec15fd6d9ae0eac71ad9d274eca159525fbc"
+    },
+    {
+      "path": "dist/rules/onedrive.list",
+      "bytes": 515,
+      "sha256": "69eb753d7443bd14d0b4358e86916ad06794f9f3d4ba4f388a29c27fb5230ecb"
+    },
+    {
+      "path": "dist/rules/proxy-gfwlist.list",
+      "bytes": 187864,
+      "sha256": "aa02d7d07b95d02d27c77fcc686863e45fa6c3b3e62d659b67601e918631b053"
+    },
+    {
+      "path": "dist/rules/proxy-media.list",
+      "bytes": 10408,
+      "sha256": "3cb20de2312ea79096702d932af34e47114f2874b69e70593f0485594879b417"
+    },
+    {
+      "path": "dist/rules/social.list",
+      "bytes": 1584,
+      "sha256": "a77d089b37a86dda9183674f6570e0039b376eb97e8cf3744cc6642da98131b3"
+    },
+    {
+      "path": "dist/rules/streaming.list",
+      "bytes": 5294,
+      "sha256": "414dfbd1a282721ee87a108e8dcdedba810a5dc57896dd2b7a28c423a4bd5b40"
+    },
+    {
+      "path": "dist/rules/telegram.list",
+      "bytes": 428,
+      "sha256": "8ea3ffebdd5f3fc78eed903504b27a6689dce9b539d784facdebcbe425d4ca92"
+    },
+    {
+      "path": "dist/rules/tiktok.list",
+      "bytes": 267,
+      "sha256": "b60805600f43635aaaf55cd7350327d67b275fafd260809e8bce64eae92afaed"
+    },
+    {
+      "path": "geo/ASN.mmdb",
+      "bytes": 8969559,
+      "sha256": "d82d2f39ea82a175a3d63484c8b4723040d134ba1edf4b27d6819c2f96c14a9b"
+    },
+    {
+      "path": "geo/geoip.metadb",
+      "bytes": 8414245,
+      "sha256": "2a423d870b01a7ea8f30c0184b627396bbc697160d4e7153eed4d1c8858dbb15"
+    },
+    {
+      "path": "geo/geosite.dat",
+      "bytes": 4276543,
+      "sha256": "edcea5a7bb89cc1832ee3b3bbee3edcbf45474d52b6607261c11960a64e8e2e2"
+    }
+  ]
+}
